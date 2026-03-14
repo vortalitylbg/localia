@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Pause, SkipBack, SkipForward, Volume2, Search as SearchIcon, Home, Library, PlusSquare, 
-  Music, Settings, User as UserIcon, Plus, ArrowLeft, Shuffle, Repeat, Sliders, Disc, User, Heart, ListMusic, Upload, LogOut, Camera, X
+  Music, Settings, User as UserIcon, Plus, ArrowLeft, Shuffle, Repeat, Sliders, Disc, User, Heart, ListMusic, Upload, LogOut, Camera, X, Menu, XCircle
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -42,18 +42,18 @@ const apiFetch = async (url, options = {}) => {
 
 function Modal({ isOpen, onClose, title, children, size = 'md' }) {
   if (!isOpen) return null;
-  const sizeClasses = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
+  const sizeClasses = { sm: 'max-w-sm sm:max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/90" onClick={onClose} />
-      <div className={clsx("relative bg-[#181818] rounded-xl shadow-2xl w-full mx-4 animate-scale-in", sizeClasses[size])}>
-        <div className="flex items-center justify-between p-4 border-b border-white/10">
-          <h2 className="text-xl font-bold text-white">{title}</h2>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-            <X className="w-5 h-5 text-gray-400" />
+      <div className={clsx("relative bg-[#181818] rounded-xl shadow-2xl w-full animate-scale-in", sizeClasses[size])}>
+        <div className="flex items-center justify-between p-3 sm:p-4 border-b border-white/10">
+          <h2 className="text-lg sm:text-xl font-bold text-white">{title}</h2>
+          <button onClick={onClose} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors">
+            <X className="w-4 sm:w-5 h-4 sm:h-5 text-gray-400" />
           </button>
         </div>
-        <div className="p-6">{children}</div>
+        <div className="p-4 sm:p-6">{children}</div>
       </div>
     </div>
   );
@@ -110,6 +110,7 @@ function App() {
   const [favoritesPlaylist, setFavoritesPlaylist] = useState(null);
   const [currentPlayList, setCurrentPlayList] = useState([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState([]);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   
   const audioRef = useRef(new Audio());
   const avatarInputRef = useRef(null);
@@ -364,32 +365,32 @@ function App() {
     return (
       <div className="h-screen bg-gradient-to-b from-[#1a1625] to-[#0d0d12] flex flex-col overflow-hidden">
         <audio ref={audioRef} />
-        <div className="flex items-center justify-between p-6">
+        <div className="flex items-center justify-between p-4 md:p-6">
           <div className="flex items-center gap-3 text-white">
             <div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center"><Music className="w-6 h-6 text-black" /></div>
-            <span className="text-2xl font-black">Localify</span>
+            <span className="text-xl md:text-2xl font-black">Localify</span>
           </div>
-          <button onClick={() => setShowRegister(!showRegister)} className="text-sm font-semibold text-white bg-white/10 hover:bg-white/20 px-5 py-2.5 rounded-full">{showRegister ? 'Sign In' : 'Create Account'}</button>
+          <button onClick={() => setShowRegister(!showRegister)} className="text-sm font-semibold text-white bg-white/10 hover:bg-white/20 px-4 md:px-5 py-2 md:py-2.5 rounded-full">{showRegister ? 'Sign In' : 'Create Account'}</button>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center">
+        <div className="flex-1 flex flex-col items-center justify-center px-4">
           {!showRegister ? (
             users.length === 0 ? (
-              <div className="text-center"><p className="text-2xl font-bold text-white mb-2">No profiles</p><button onClick={() => setShowRegister(true)} className="bg-brand-primary text-black font-bold py-3 px-10 rounded-full">Create Account</button></div>
+              <div className="text-center"><p className="text-xl md:text-2xl font-bold text-white mb-2">No profiles</p><button onClick={() => setShowRegister(true)} className="bg-brand-primary text-black font-bold py-3 px-8 md:px-10 rounded-full">Create Account</button></div>
             ) : (
-              <div className="text-center">
-                <p className="text-gray-400 text-sm uppercase tracking-widest mb-8">Who's listening?</p>
-                <div className="flex items-center justify-center gap-6 mb-8">
+              <div className="text-center w-full max-w-md">
+                <p className="text-gray-400 text-sm uppercase tracking-widest mb-6 md:mb-8">Who's listening?</p>
+                <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 mb-6 md:mb-8">
                   {users.map((u, i) => (
                     <button 
                       key={u.id} 
                       onClick={() => setSelectedProfileIndex(i)}
                       className={clsx(
-                        "flex flex-col items-center gap-3 transition-all duration-300",
+                        "flex flex-col items-center gap-2 md:gap-3 transition-all duration-300",
                         i === selectedProfileIndex ? 'scale-100' : 'scale-75 opacity-40 hover:opacity-60'
                       )}
                     >
                       <div className={clsx(
-                        "w-28 h-28 rounded-full flex items-center justify-center text-3xl font-bold transition-all",
+                        "w-20 md:w-28 rounded-full flex items-center justify-center text-2xl md:text-3xl font-bold transition-all",
                         i === selectedProfileIndex 
                           ? 'bg-brand-primary text-black ring-4 ring-brand-primary/30' 
                           : 'bg-white/10 text-white'
@@ -398,7 +399,7 @@ function App() {
                       </div>
                       <span className={clsx(
                         "font-medium transition-all",
-                        i === selectedProfileIndex ? 'text-white text-base' : 'text-gray-500 text-sm'
+                        i === selectedProfileIndex ? 'text-white text-sm md:text-base' : 'text-gray-500 text-xs md:text-sm'
                       )}>
                         {u.username}
                       </span>
@@ -407,7 +408,7 @@ function App() {
                 </div>
                 <button 
                   onClick={() => users[selectedProfileIndex] && handleSelect(users[selectedProfileIndex])} 
-                  className="bg-brand-primary hover:bg-[#1ed760] text-black font-bold py-3 px-12 rounded-full transition-transform hover:scale-105"
+                  className="bg-brand-primary hover:bg-[#1ed760] text-black font-bold py-3 px-10 md:px-12 rounded-full transition-transform hover:scale-105"
                 >
                   {t('play')}
                 </button>
@@ -424,7 +425,7 @@ function App() {
                   }
                 });
               } 
-            }); }} className="space-y-4 w-80">
+            }); }} className="space-y-4 w-full max-w-80">
               <h2 className="text-2xl font-bold text-white">Create account</h2>
               <input name="username" placeholder="Username" required maxLength={20} className="w-full bg-white/10 border border-white/10 p-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
               <button type="submit" className="w-full bg-brand-primary text-black font-bold py-3 rounded-full">Create</button>
@@ -447,19 +448,19 @@ function App() {
 
   const renderContent = () => {
     if (view === 'settings') return (
-      <div className="p-6">
-        <h1 className="text-3xl font-bold text-white mb-6">{t('settings')}</h1>
-        <div className="bg-[#181818] rounded-xl p-6 mb-4">
-          <h2 className="text-xl font-bold text-white mb-4">{t('language')}</h2>
+      <div className="p-4 sm:p-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-6">{t('settings')}</h1>
+        <div className="bg-[#181818] rounded-xl p-4 sm:p-6 mb-4">
+          <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('language')}</h2>
           <select value={language} onChange={(e) => setLanguage(e.target.value)} className="w-full max-w-xs bg-white/10 border border-white/10 rounded-lg px-4 py-2 text-white">
             <option value="en">English</option>
             <option value="fr">Français</option>
           </select>
         </div>
-        <div className="bg-[#181818] rounded-xl p-6">
-          <h2 className="text-xl font-bold text-white mb-4">{t('equalizer')}</h2>
+        <div className="bg-[#181818] rounded-xl p-4 sm:p-6">
+          <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('equalizer')}</h2>
           <div className="flex flex-wrap gap-2 mb-4">
-            {Object.entries(equalizerPresets).map(([k, p]) => <button key={k} onClick={() => applyPreset(k)} className={clsx("px-4 py-2 rounded-full text-sm", equalizerPreset === k ? 'bg-brand-primary text-black' : 'bg-white/10 text-white')}>{p.name}</button>)}
+            {Object.entries(equalizerPresets).map(([k, p]) => <button key={k} onClick={() => applyPreset(k)} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm", equalizerPreset === k ? 'bg-brand-primary text-black' : 'bg-white/10 text-white')}>{p.name}</button>)}
           </div>
         </div>
       </div>
@@ -472,12 +473,12 @@ function App() {
       const albumTracks = getAlbumTracks(album.name);
       return (
         <div className="pb-8">
-          <div className="flex items-end gap-6 p-6 bg-gradient-to-b from-white/20 to-transparent">
-            <div className="w-52 h-52 bg-gray-800 rounded-lg overflow-hidden">{album.cover ? <img src={getCoverUrl(album.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-20 h-20 text-gray-600 m-auto" />}</div>
-            <div><p className="text-white text-sm uppercase">Album</p><h1 className="text-4xl font-black text-white">{album.name}</h1><p className="text-white">{album.artist}</p></div>
+          <div className="flex flex-col sm:flex-row items-end gap-4 sm:gap-6 p-4 sm:p-6 bg-gradient-to-b from-white/20 to-transparent">
+            <div className="w-36 sm:w-44 md:w-52 h-36 sm:h-44 md:h-52 bg-gray-800 rounded-lg overflow-hidden flex-shrink-0">{album.cover ? <img src={getCoverUrl(album.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-16 sm:w-20 h-16 sm:h-20 text-gray-600 m-auto" />}</div>
+            <div><p className="text-white text-xs sm:text-sm uppercase">Album</p><h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white">{album.name}</h1><p className="text-white text-sm sm:text-base">{album.artist}</p></div>
           </div>
-          <div className="flex items-center gap-4 p-6"><button onClick={() => albumTracks[0] && playTrack(albumTracks[0], albumTracks)} className="w-14 h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-7 h-7 text-black ml-1" /></button></div>
-          <div className="px-6">{albumTracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, albumTracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
+          <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-6"><button onClick={() => albumTracks[0] && playTrack(albumTracks[0], albumTracks)} className="w-12 sm:w-14 h-12 sm:h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 sm:w-7 h-6 sm:h-7 text-black ml-0.5 sm:ml-1" /></button></div>
+          <div className="px-3 sm:px-6">{albumTracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, albumTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500 text-xs sm:text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
         </div>
       );
     }
@@ -487,26 +488,26 @@ function App() {
       const aAlbums = getArtistAlbums(artist.name);
       return (
         <div className="pb-8">
-          <div className="flex items-end gap-6 p-6 bg-gradient-to-b from-white/20 to-transparent">
-            <div className="w-52 h-52 bg-gray-800 rounded-full overflow-hidden">{artist.cover ? <img src={getCoverUrl(artist.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-24 h-24 text-gray-600 m-auto" />}</div>
-            <div><p className="text-white text-sm uppercase">Artist</p><h1 className="text-4xl font-black text-white">{artist.name}</h1></div>
+          <div className="flex flex-col sm:flex-row items-end gap-4 sm:gap-6 p-4 sm:p-6 bg-gradient-to-b from-white/20 to-transparent">
+            <div className="w-36 sm:w-44 md:w-52 h-36 sm:h-44 md:h-52 bg-gray-800 rounded-full overflow-hidden flex-shrink-0">{artist.cover ? <img src={getCoverUrl(artist.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-16 sm:w-20 md:w-24 h-16 sm:h-20 md:h-24 text-gray-600 m-auto" />}</div>
+            <div><p className="text-white text-xs sm:text-sm uppercase">Artist</p><h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white">{artist.name}</h1></div>
           </div>
-          <div className="flex items-center gap-4 p-6"><button onClick={() => aTracks[0] && playTrack(aTracks[0], aTracks)} className="w-14 h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-7 h-7 text-black ml-1" /></button></div>
-          <div className="px-6"><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2>{aTracks.slice(0,10).map((t, i) => <div key={t.id} onClick={() => playTrack(t, aTracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}
-          <h2 className="text-xl font-bold text-white mt-8 mb-4">{t('albums')}</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{aAlbums.map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p></div>)}</div></div></div>
+          <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-6"><button onClick={() => aTracks[0] && playTrack(aTracks[0], aTracks)} className="w-12 sm:w-14 h-12 sm:h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 sm:w-7 h-6 sm:h-7 text-black ml-0.5 sm:ml-1" /></button></div>
+          <div className="px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2>{aTracks.slice(0,10).map((t, i) => <div key={t.id} onClick={() => playTrack(t, aTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500 text-xs sm:text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}
+          <h2 className="text-lg sm:text-xl font-bold text-white mt-6 sm:mt-8 mb-3 sm:mb-4">{t('albums')}</h2>
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{aAlbums.map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate">{a.name}</p></div>)}</div></div></div>
       );
     }
 
     if (view === 'playlist' && activePlaylist) {
       return (
         <div className="pb-8">
-          <div className="flex items-end gap-6 p-6 bg-gradient-to-b from-white/20 to-transparent">
-            <div className="w-52 h-52 bg-gray-800 rounded-lg overflow-hidden"><ListMusic className="w-20 h-20 text-gray-600 m-auto" /></div>
-            <div><p className="text-white text-sm uppercase">{t('playlists')}</p><h1 className="text-4xl font-black text-white">{activePlaylist.name}</h1><p className="text-gray-400">{playlistTracks.length} {t('songs')}</p></div>
+          <div className="flex flex-col sm:flex-row items-end gap-4 sm:gap-6 p-4 sm:p-6 bg-gradient-to-b from-white/20 to-transparent">
+            <div className="w-36 sm:w-44 md:w-52 h-36 sm:h-44 md:h-52 bg-gray-800 rounded-lg overflow-hidden flex-shrink-0"><ListMusic className="w-16 sm:w-20 h-16 sm:h-20 text-gray-600 m-auto" /></div>
+            <div><p className="text-white text-xs sm:text-sm uppercase">{t('playlists')}</p><h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white">{activePlaylist.name}</h1><p className="text-gray-400 text-sm sm:text-base">{playlistTracks.length} {t('songs')}</p></div>
           </div>
-          <div className="flex items-center gap-4 p-6"><button onClick={() => playlistTracks[0] && playTrack(playlistTracks[0], playlistTracks)} className="w-14 h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-7 h-7 text-black ml-1" /></button><button onClick={() => { if (playlistTracks.length) { const s = [...playlistTracks].sort(() => Math.random() - 0.5); playTrack(s[0], s); }}} className="text-gray-400 hover:text-white"><Shuffle className="w-6 h-6" /></button></div>
-          <div className="px-6">{playlistTracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, playlistTracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><button onClick={(e) => { e.stopPropagation(); toggleFavorite(t); }} className="text-gray-400 hover:text-white"><Heart className={clsx("w-5 h-5", playlistTracks.some(x => x.id === t.id) ? 'fill-red-500 text-red-500' : '')} /></button><span className="text-gray-500">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
+          <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-6"><button onClick={() => playlistTracks[0] && playTrack(playlistTracks[0], playlistTracks)} className="w-12 sm:w-14 h-12 sm:h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 sm:w-7 h-6 sm:h-7 text-black ml-0.5 sm:ml-1" /></button><button onClick={() => { if (playlistTracks.length) { const s = [...playlistTracks].sort(() => Math.random() - 0.5); playTrack(s[0], s); }}} className="text-gray-400 hover:text-white hidden sm:block"><Shuffle className="w-5 sm:w-6 h-5 sm:h-6" /></button></div>
+          <div className="px-3 sm:px-6">{playlistTracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, playlistTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate hidden sm:block">{t.artist}</p></div><button onClick={(e) => { e.stopPropagation(); toggleFavorite(t); }} className="text-gray-400 hover:text-white flex-shrink-0"><Heart className={clsx("w-4 sm:w-5 h-4 sm:h-5", playlistTracks.some(x => x.id === t.id) ? 'fill-red-500 text-red-500' : '')} /></button><span className="text-gray-500 text-xs sm:text-sm hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
         </div>
       );
     }
@@ -517,34 +518,34 @@ function App() {
       <div className="pb-8">
         {view === 'home' && (
           <>
-            <h1 className="text-3xl font-bold text-white mb-6 px-6">{t('goodEvening')}</h1>
-            {recentlyPlayed.length > 0 && <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">Recently played</h2><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">{recentlyPlayed.slice(0,6).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-3 p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer"><div className="w-12 h-12 bg-gray-800 rounded">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-6 h-6 text-gray-600 m-auto" />}</div><p className="text-white truncate flex-1">{t.title}</p></div>)}</div></div>}
-            <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.slice(0, 20).map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></div>
-            <div className="px-6"><h2 className="text-xl font-bold text-white mb-4">{t('albums')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueAlbums().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate font-medium">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div></div>
-            <div className="px-6 mt-8"><h2 className="text-xl font-bold text-white mb-4">{t('artists')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueArtists().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div></div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-6 px-3 sm:px-6">{t('goodEvening')}</h1>
+            {recentlyPlayed.length > 0 && <div className="mb-6 sm:mb-8 px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">Recently played</h2><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">{recentlyPlayed.slice(0,6).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer"><div className="w-10 sm:w-12 h-10 sm:h-12 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-5 sm:w-6 h-5 sm:h-6 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate flex-1">{t.title}</p></div>)}</div></div>}
+            <div className="mb-6 sm:mb-8 px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.slice(0, 20).map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></div>
+            <div className="px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('albums')}</h2><div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueAlbums().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate font-medium">{a.name}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{a.artist}</p></div>)}</div></div>
+            <div className="px-3 sm:px-6 mt-6 sm:mt-8"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('artists')}</h2><div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueArtists().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3 mx-auto w-16 sm:w-20 md:w-24 lg:w-28">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-8 sm:w-10 md:w-12 h-8 sm:h-10 md:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate text-center">{a.name}</p></div>)}</div></div>
           </>
         )}
 
         {view === 'search' && (
-          <div className="px-6 pb-8">
-            <h1 className="text-3xl font-bold text-white mb-6">{t('search')}</h1>
-            {searchQuery && <><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className="text-white truncate">{t.title}</p><p className="text-gray-400 text-sm">{t.artist}</p></div></div>)}</div></>}
+          <div className="px-3 sm:px-6 pb-8">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-6">{t('search')}</h1>
+            {searchQuery && <><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2><div className="space-y-0.5 sm:space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className="text-white text-sm truncate">{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate">{t.artist}</p></div></div>)}</div></>}
           </div>
         )}
 
         {isLibrary && (
-          <div className="px-6 pb-8">
-            <div className="flex items-center justify-between py-4"><h1 className="text-3xl font-bold text-white">{t('library')}</h1><button onClick={() => setShowPlaylistModal(true)} className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full text-white text-sm"><Plus className="w-4 h-4" />{t('createPlaylist')}</button></div>
-            <div className="flex gap-2 mb-6">
-              <button onClick={() => setView('library')} className={clsx("px-4 py-2 rounded-full text-sm font-medium", view === 'library' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('playlists')}</button>
-              <button onClick={() => setView('library-songs')} className={clsx("px-4 py-2 rounded-full text-sm font-medium", view === 'library-songs' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('songs')}</button>
-              <button onClick={() => setView('library-albums')} className={clsx("px-4 py-2 rounded-full text-sm font-medium", view === 'library-albums' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('albums')}</button>
-              <button onClick={() => setView('library-artists')} className={clsx("px-4 py-2 rounded-full text-sm font-medium", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
+          <div className="px-3 sm:px-6 pb-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 py-3 sm:py-4"><h1 className="text-2xl sm:text-3xl font-bold text-white">{t('library')}</h1><button onClick={() => setShowPlaylistModal(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/10 rounded-full text-white text-sm self-start"><Plus className="w-4 h-4" />{t('createPlaylist')}</button></div>
+            <div className="flex gap-1 sm:gap-2 mb-4 sm:mb-6 overflow-x-auto pb-2">
+              <button onClick={() => setView('library')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('playlists')}</button>
+              <button onClick={() => setView('library-songs')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-songs' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('songs')}</button>
+              <button onClick={() => setView('library-albums')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-albums' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('albums')}</button>
+              <button onClick={() => setView('library-artists')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
             </div>
-            {view === 'library' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{playlists.map(p => <div key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3"><ListMusic className="w-12 h-12 text-gray-600 m-auto" /></div><p className="text-white truncate">{p.name}</p></div>)}</div>}
-            {view === 'library-songs' && <><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></>}
-            {view === 'library-albums' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueAlbums().map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div>}
-            {view === 'library-artists' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueArtists().map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div>}
+            {view === 'library' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{playlists.map(p => <div key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3"><ListMusic className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" /></div><p className="text-white text-xs sm:text-sm truncate">{p.name}</p></div>)}</div>}
+            {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></>}
+            {view === 'library-albums' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueAlbums().map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate">{a.name}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{a.artist}</p></div>)}</div>}
+            {view === 'library-artists' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueArtists().map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3 mx-auto w-16 sm:w-20 md:w-24 lg:w-28">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-8 sm:w-10 md:w-12 h-8 sm:h-10 md:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate text-center">{a.name}</p></div>)}</div>}
           </div>
         )}
       </div>
@@ -555,71 +556,81 @@ function App() {
     <div className="h-screen flex flex-col overflow-hidden bg-black">
       <audio ref={audioRef} />
       <div className="flex-1 flex overflow-hidden">
-        <aside className="w-64 bg-black flex flex-col flex-shrink-0">
-          <div className="p-6">
-            <div className="flex items-center gap-3 text-white mb-8"><div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center"><Music className="w-6 h-6 text-black" /></div><span className="text-xl font-black">Localify</span></div>
+        <aside className={clsx(
+          "fixed md:relative z-40 h-full bg-black flex flex-col flex-shrink-0 transition-transform duration-300",
+          showMobileMenu ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}>
+          <div className="p-4 md:p-6">
+            <div className="flex items-center justify-between md:justify-start gap-3 text-white mb-6 md:mb-8">
+              <button onClick={() => setShowMobileMenu(false)} className="md:hidden p-2 text-gray-400 hover:text-white"><XCircle className="w-7 h-7" /></button>
+              <div className="flex items-center gap-3"><div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center"><Music className="w-6 h-6 text-black" /></div><span className="text-xl font-black">Localify</span></div>
+            </div>
             <nav className="space-y-1">
-              <button onClick={() => setView('home')} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors", view === 'home' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5')}><Home className="w-6 h-6" /><span className="font-medium">{t('home')}</span></button>
-              <button onClick={() => setView('search')} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors", view === 'search' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5')}><SearchIcon className="w-6 h-6" /><span className="font-medium">{t('search')}</span></button>
-              <button onClick={() => setView('library')} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors", view === 'library' || view.startsWith('library') ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5')}><Library className="w-6 h-6" /><span className="font-medium">{t('library')}</span></button>
+              <button onClick={() => { setView('home'); setShowMobileMenu(false); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors", view === 'home' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5')}><Home className="w-6 h-6" /><span className="font-medium">{t('home')}</span></button>
+              <button onClick={() => { setView('search'); setShowMobileMenu(false); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors", view === 'search' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5')}><SearchIcon className="w-6 h-6" /><span className="font-medium">{t('search')}</span></button>
+              <button onClick={() => { setView('library'); setShowMobileMenu(false); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors", view === 'library' || view.startsWith('library') ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5')}><Library className="w-6 h-6" /><span className="font-medium">{t('library')}</span></button>
             </nav>
-            <div className="mt-8">
+            <div className="mt-6 md:mt-8">
               <div className="flex items-center justify-between px-4 mb-3"><span className="text-gray-400 text-sm font-medium uppercase">{t('playlists')}</span><button onClick={() => setShowPlaylistModal(true)} className="text-gray-400 hover:text-white"><Plus className="w-5 h-5" /></button></div>
-              <div className="space-y-1 max-h-64 overflow-y-auto">{playlists.map(p => <button key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className="w-full text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 text-sm truncate">{p.name}</button>)}</div>
+              <div className="space-y-1 max-h-48 md:max-h-64 overflow-y-auto">{playlists.map(p => <button key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); setShowMobileMenu(false); }} className="w-full text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 text-sm truncate">{p.name}</button>)}</div>
             </div>
           </div>
         </aside>
 
+        {showMobileMenu && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setShowMobileMenu(false)} />}
+
         <main className="flex-1 flex flex-col overflow-hidden bg-gradient-to-b from-[#1a1a1a] to-black">
-          <header className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-2">
-              {(view !== 'home' && view !== 'search' && view !== 'library' && !view.startsWith('library') && view !== 'settings') && <button onClick={() => { setView('home'); setSelectedAlbum(null); setSelectedArtist(null); setActivePlaylist(null); }} className="p-2 bg-black/50 rounded-full hover:scale-110"><ArrowLeft className="w-5 h-5 text-white" /></button>}
-              <div className="relative w-80"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); if (view !== 'search') setView('search'); }} placeholder={t('searchPlaceholder')} className="w-full bg-white/10 border border-transparent rounded-full py-2 pl-10 pr-4 text-white placeholder-gray-400 focus:outline-none focus:bg-white/20" /></div>
+          <header className="flex items-center justify-between p-3 md:p-4 gap-2">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <button onClick={() => setShowMobileMenu(true)} className="md:hidden p-2 text-gray-400 hover:text-white flex-shrink-0"><Menu className="w-6 h-6" /></button>
+              {(view !== 'home' && view !== 'search' && view !== 'library' && !view.startsWith('library') && view !== 'settings') && <button onClick={() => { setView('home'); setSelectedAlbum(null); setSelectedArtist(null); setActivePlaylist(null); }} className="p-2 bg-black/50 rounded-full hover:scale-110 flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>}
+              <div className="relative w-full max-w-xs md:max-w-md lg:max-w-80 hidden sm:block"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); if (view !== 'search') setView('search'); }} placeholder={t('searchPlaceholder')} className="w-full bg-white/10 border border-transparent rounded-full py-2 pl-10 pr-4 text-white placeholder-gray-400 focus:outline-none focus:bg-white/20 text-sm" /></div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
               <button onClick={() => setShowUploadModal(true)} className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10" title="Upload Music"><Upload className="w-5 h-5" /></button>
-              <button onClick={() => setShowEqualizer(true)} className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10"><Sliders className="w-6 h-6" /></button>
+              <button onClick={() => setShowEqualizer(true)} className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10 hidden sm:flex"><Sliders className="w-6 h-6" /></button>
               <button onClick={() => setView('settings')} className={clsx("p-2 rounded-full", view === 'settings' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10')}><Settings className="w-6 h-6" /></button>
-              <button onClick={() => setShowAccountModal(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20">{userAvatar ? <img src={userAvatar} className="w-7 h-7 rounded-full object-cover" /> : <div className="w-7 h-7 bg-brand-primary rounded-full flex items-center justify-center text-black font-bold text-sm">{currentUser.username[0].toUpperCase()}</div>}<span className="text-white font-medium text-sm">{currentUser.username}</span></button>
+              <button onClick={() => setShowAccountModal(true)} className="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20">{userAvatar ? <img src={userAvatar} className="w-7 h-7 rounded-full object-cover" /> : <div className="w-7 h-7 bg-brand-primary rounded-full flex items-center justify-center text-black font-bold text-sm">{currentUser.username[0].toUpperCase()}</div>}<span className="text-white font-medium text-sm hidden md:inline">{currentUser.username}</span></button>
             </div>
           </header>
-          <div className="flex-1 overflow-y-auto pb-32">{renderContent()}</div>
+          <div className="sm:hidden px-3 pb-2"><div className="relative w-full"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" /><input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); if (view !== 'search') setView('search'); }} placeholder={t('searchPlaceholder')} className="w-full bg-white/10 border border-transparent rounded-full py-2 pl-9 pr-4 text-white placeholder-gray-400 focus:outline-none focus:bg-white/20 text-sm" /></div></div>
+          <div className="flex-1 overflow-y-auto pb-24 sm:pb-32">{renderContent()}</div>
         </main>
       </div>
 
-      <div className="h-24 bg-gradient-to-r from-[#181818] via-[#1a1a1a] to-[#181818] border-t border-white/10 px-6 flex items-center justify-between fixed bottom-0 left-0 right-0 z-50 backdrop-blur-md">
-        <div className="flex items-center gap-4 w-1/4">
+      <div className="h-20 sm:h-24 bg-gradient-to-r from-[#181818] via-[#1a1a1a] to-[#181818] border-t border-white/10 px-2 sm:px-6 flex items-center justify-between fixed bottom-0 left-0 right-0 z-50 backdrop-blur-md">
+        <div className="flex items-center gap-2 sm:gap-4 w-1/3 sm:w-1/4 min-w-0">
           {currentTrack && (
-            <div className="flex items-center gap-3">
-              <div className="w-14 h-14 bg-gray-800 rounded-lg flex-shrink-0 overflow-hidden shadow-lg">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="w-10 h-10 sm:w-14 sm:h-14 bg-gray-800 rounded-lg flex-shrink-0 overflow-hidden shadow-lg">
                 {currentTrack.hasPicture ? (
                   <img src={getCoverUrl(currentTrack.fileName)} className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
-                    <Disc className="w-7 h-7 text-gray-500" />
+                    <Disc className="w-4 h-5 sm:w-7 sm:h-7 text-gray-500" />
                   </div>
                 )}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 hidden sm:block">
                 <p className="text-white font-medium truncate text-sm">{currentTrack.title}</p>
                 <p className="text-gray-400 text-xs truncate">{currentTrack.artist}</p>
               </div>
-              <button onClick={() => toggleFavorite(currentTrack)} className="text-gray-400 hover:text-white transition-colors">
+              <button onClick={() => toggleFavorite(currentTrack)} className="text-gray-400 hover:text-white transition-colors flex-shrink-0 hidden sm:block">
                 <Heart className={clsx("w-5 h-5", favoritesPlaylist && playlistTracks.some(t => t.id === currentTrack?.id) ? 'fill-red-500 text-red-500' : '')} />
               </button>
             </div>
           )}
         </div>
-        <div className="flex flex-col items-center w-1/2">
-          <div className="flex items-center gap-4 mb-2">
-            <button onClick={() => setIsShuffle(!isShuffle)} className={clsx("transition-colors", isShuffle ? 'text-brand-primary' : 'text-gray-400 hover:text-white')}><Shuffle className="w-4 h-4" /></button>
-            <button onClick={handlePrev} className="text-gray-400 hover:text-white transition-colors"><SkipBack className="w-5 h-5" /></button>
-            <button onClick={() => { if (currentTrack) { if (isPlaying) audioRef.current.pause(); else audioRef.current.play(); setIsPlaying(!isPlaying); } }} className="w-10 h-10 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg">{isPlaying ? <Pause className="w-5 h-5 text-black" /> : <Play className="w-5 h-5 text-black ml-0.5" />}</button>
-            <button onClick={handleNext} className="text-gray-400 hover:text-white transition-colors"><SkipForward className="w-5 h-5" /></button>
-            <button onClick={() => setRepeatMode(repeatMode === 'off' ? 'all' : 'off')} className={clsx("transition-colors", repeatMode !== 'off' ? 'text-brand-primary' : 'text-gray-400 hover:text-white')}><Repeat className="w-4 h-4" /></button>
+        <div className="flex flex-col items-center w-1/3 sm:w-1/2">
+          <div className="flex items-center gap-2 sm:gap-4 mb-1 sm:mb-2">
+            <button onClick={() => setIsShuffle(!isShuffle)} className={clsx("transition-colors hidden sm:block", isShuffle ? 'text-brand-primary' : 'text-gray-400 hover:text-white')}><Shuffle className="w-4 h-4" /></button>
+            <button onClick={handlePrev} className="text-gray-400 hover:text-white transition-colors"><SkipBack className="w-4 h-5" /></button>
+            <button onClick={() => { if (currentTrack) { if (isPlaying) audioRef.current.pause(); else audioRef.current.play(); setIsPlaying(!isPlaying); } }} className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg">{isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5 text-black" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 text-black ml-0.5" />}</button>
+            <button onClick={handleNext} className="text-gray-400 hover:text-white transition-colors"><SkipForward className="w-4 h-5" /></button>
+            <button onClick={() => setRepeatMode(repeatMode === 'off' ? 'all' : 'off')} className={clsx("transition-colors hidden sm:block", repeatMode !== 'off' ? 'text-brand-primary' : 'text-gray-400 hover:text-white')}><Repeat className="w-4 h-4" /></button>
           </div>
-          <div className="w-full flex items-center gap-3">
-            <span className="text-gray-400 text-xs w-10 text-right tabular-nums">{Math.floor(currentTime/60)}:{String(Math.floor(currentTime%60)).padStart(2,'0')}</span>
+          <div className="w-full flex items-center gap-1 sm:gap-3">
+            <span className="text-gray-400 text-xs w-6 sm:w-10 text-right tabular-nums hidden sm:block">{Math.floor(currentTime/60)}:{String(Math.floor(currentTime%60)).padStart(2,'0')}</span>
             <div className="flex-1 relative h-1.5 bg-white/10 rounded-full group">
               <div 
                 className="absolute h-full bg-brand-primary rounded-full transition-all"
@@ -635,13 +646,13 @@ function App() {
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
             </div>
-            <span className="text-gray-400 text-xs w-10 tabular-nums">{Math.floor(duration/60)}:{String(Math.floor(duration%60)).padStart(2,'0')}</span>
+            <span className="text-gray-400 text-xs w-6 sm:w-10 tabular-nums hidden sm:block">{Math.floor(duration/60)}:{String(Math.floor(duration%60)).padStart(2,'0')}</span>
           </div>
         </div>
-        <div className="flex items-center justify-end gap-4 w-1/4">
-          <div className="flex items-center gap-2 group">
-            <Volume2 className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
-            <div className="w-20 relative h-1.5 bg-white/10 rounded-full">
+        <div className="flex items-center justify-end gap-2 sm:gap-4 w-1/3 sm:w-1/4">
+          <div className="flex items-center gap-1 sm:gap-2 group">
+            <Volume2 className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-white transition-colors" />
+            <div className="w-12 sm:w-20 relative h-1.5 bg-white/10 rounded-full">
               <div 
                 className="absolute h-full bg-white rounded-full transition-all"
                 style={{ width: `${volume * 100}%` }}
@@ -745,9 +756,9 @@ function App() {
       </Modal>
 
       <Modal isOpen={showEqualizer} onClose={() => setShowEqualizer(false)} title={t('equalizer')}>
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">{Object.entries(equalizerPresets).map(([k, p]) => <button key={k} onClick={() => applyPreset(k)} className={clsx("px-4 py-2 rounded-full text-sm", equalizerPreset === k ? 'bg-brand-primary text-black' : 'bg-white/10 text-white')}>{p.name}</button>)}</div>
-          <div className="flex justify-end"><button onClick={() => setShowEqualizer(false)} className="px-6 py-2 bg-brand-primary text-black font-semibold rounded-full">Done</button></div>
+        <div className="space-y-3 sm:space-y-4">
+          <div className="flex flex-wrap gap-2">{Object.entries(equalizerPresets).map(([k, p]) => <button key={k} onClick={() => applyPreset(k)} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm", equalizerPreset === k ? 'bg-brand-primary text-black' : 'bg-white/10 text-white')}>{p.name}</button>)}</div>
+          <div className="flex justify-end"><button onClick={() => setShowEqualizer(false)} className="px-5 sm:px-6 py-1.5 sm:py-2 bg-brand-primary text-black font-semibold rounded-full text-sm sm:text-base">Done</button></div>
         </div>
       </Modal>
     </div>
