@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Play, Pause, SkipBack, SkipForward, Volume2, Search as SearchIcon, Home, Library, PlusSquare, 
-  Music, Settings, User as UserIcon, Plus, ArrowLeft, Shuffle, Repeat, Sliders, Disc, User, Heart, ListMusic, Upload, LogOut, Camera, X, Menu, XCircle
+  Music, Settings, User as UserIcon, Plus, ArrowLeft, Shuffle, Repeat, Sliders, Disc, User, Heart, ListMusic, Upload, LogOut, Camera, X, Menu, XCircle, Gamepad2
 } from 'lucide-react';
+import { useGamepad } from './useGamepad.jsx';
+import { GamepadHints } from './GamepadHints.jsx';
 import clsx from 'clsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:5000/api`;
@@ -111,8 +113,15 @@ function App() {
   const [currentPlayList, setCurrentPlayList] = useState([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState([]);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
-  
-  const audioRef = useRef(new Audio());
+  const [focusIndex, setFocusIndex] = useState(0);
+  const [focusCategory, setFocusCategory] = useState('profile');
+  const [gamepadMode, setGamepadMode] = useState('navigation');
+  const [consoleMode, setConsoleMode] = useState(false);
+  const [consoleView, setConsoleView] = useState('home');
+  const [consoleFocus, setConsoleFocus] = useState({ row: 0, col: 0 });
+  const [flatItems, setFlatItems] = useState([]);
+
+  const audioRef = useRef(null);
   const avatarInputRef = useRef(null);
 
   const equalizerPresets = {
@@ -125,6 +134,16 @@ function App() {
   };
   const [equalizerValues, setEqualizerValues] = useState([0, 0, 0, 0, 0]);
   const [equalizerPreset, setEqualizerPreset] = useState('flat');
+
+  const getFocusProps = (category, index) => {
+    if (!gamepadConnected || !currentUser) return {};
+    const isFocused = focusCategory === category && focusIndex === index;
+    return {
+      'data-gamepad-focus': isFocused,
+      'data-category': category,
+      'data-index': index,
+    };
+  };
 
   const t = (key) => {
     const trans = {
@@ -226,6 +245,41 @@ function App() {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       
+      if (consoleMode) {
+        const maxItems = flatItems.length;
+        if (maxItems > 0) {
+          const currentIdx = consoleFocus.row;
+          const currentItem = flatItems[currentIdx];
+          
+          switch (e.code) {
+            case 'ArrowUp':
+              e.preventDefault();
+              setConsoleFocus(f => ({ ...f, row: Math.max(0, f.row - 1) }));
+              return;
+            case 'ArrowDown':
+              e.preventDefault();
+              setConsoleFocus(f => ({ ...f, row: Math.min(maxItems - 1, f.row + 1) }));
+              return;
+            case 'Enter':
+            case 'Space':
+              e.preventDefault();
+              if (currentItem && currentItem.type !== 'category' && currentItem.action) {
+                currentItem.action();
+              }
+              return;
+            case 'Escape':
+              e.preventDefault();
+              if (consoleView !== 'home') {
+                setConsoleView('home');
+                setConsoleFocus({ row: 0, col: 0 });
+              } else {
+                setConsoleMode(false);
+              }
+              return;
+          }
+        }
+      }
+      
       switch (e.code) {
         case 'Space':
           e.preventDefault();
@@ -237,19 +291,19 @@ function App() {
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 5);
+          if (!consoleMode) audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 5);
           break;
         case 'ArrowRight':
           e.preventDefault();
-          audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 5);
+          if (!consoleMode) audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 5);
           break;
         case 'ArrowUp':
           e.preventDefault();
-          setVolume(v => Math.min(1, parseFloat(v) + 0.1));
+          if (!consoleMode) setVolume(v => Math.min(1, parseFloat(v) + 0.1));
           break;
         case 'ArrowDown':
           e.preventDefault();
-          setVolume(v => Math.max(0, parseFloat(v) - 0.1));
+          if (!consoleMode) setVolume(v => Math.max(0, parseFloat(v) - 0.1));
           break;
         case 'KeyN': {
           const list = currentPlayList.length > 0 ? currentPlayList : tracks;
@@ -268,11 +322,46 @@ function App() {
           playTrack(list[idx > 0 ? idx - 1 : list.length - 1], list);
           break;
         }
+        case 'Enter': {
+          if (gamepadConnected && currentUser && !consoleMode) {
+            setConsoleMode(true);
+            setConsoleView('home');
+            setConsoleFocus({ row: 0, col: 0 });
+          }
+          break;
+        }
+        case 'Escape': {
+          if (consoleMode) {
+            setConsoleMode(false);
+          }
+          break;
+        }
+        case 'KeyG': {
+          if (gamepadConnected && currentUser) {
+            setConsoleMode(!consoleMode);
+            if (!consoleMode) {
+              setConsoleView('home');
+              setConsoleFocus({ row: 0, col: 0 });
+            }
+          }
+          break;
+        }
+        case 'Tab': {
+          if (gamepadConnected && currentUser) {
+            e.preventDefault();
+            setConsoleMode(!consoleMode);
+            if (!consoleMode) {
+              setConsoleView('home');
+              setConsoleFocus({ row: 0, col: 0 });
+            }
+          }
+          break;
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTrack, isPlaying, duration, currentPlayList, tracks, isShuffle, repeatMode]);
+  }, [currentTrack, isPlaying, duration, currentPlayList, tracks, isShuffle, repeatMode, consoleMode, flatItems, consoleFocus, setConsoleFocus]);
 
   const playTrack = (track, list = null) => {
     const playlist = list || currentPlayList || tracks;
@@ -420,6 +509,207 @@ function App() {
   const [selectedAlbum, setSelectedAlbum] = useState(null);
   const [selectedArtist, setSelectedArtist] = useState(null);
 
+  const gamepadHandlers = useMemo(() => ({
+    onNavigate: (direction) => {
+      if (consoleMode) {
+        const maxItems = flatItems.length;
+        
+        if (direction === 'up') {
+          setConsoleFocus(f => ({ ...f, row: Math.max(0, f.row - 1) }));
+        } else if (direction === 'down') {
+          setConsoleFocus(f => ({ ...f, row: Math.min(maxItems - 1, f.row + 1) }));
+        }
+        return;
+      }
+
+      if (!currentUser) {
+        if (direction === 'up' || direction === 'left') {
+          setSelectedProfileIndex(i => Math.max(0, i - 1));
+        } else if (direction === 'down' || direction === 'right') {
+          setSelectedProfileIndex(i => Math.min(users.length - 1, i + 1));
+        }
+        return;
+      }
+
+      const getMaxIndex = () => {
+        switch (focusCategory) {
+          case 'sidebar': return 2;
+          case 'tracks': return Math.min(tracks.length - 1, 19);
+          case 'recently': return Math.min(recentlyPlayed.length - 1, 5);
+          case 'albums': return Math.min(getUniqueAlbums().length - 1, 11);
+          case 'artists': return Math.min(getUniqueArtists().length - 1, 11);
+          case 'playlists': return playlists.length - 1;
+          case 'library-tabs': return 3;
+          default: return 0;
+        }
+      };
+
+      if (direction === 'up') setFocusIndex(i => Math.max(0, i - 1));
+      else if (direction === 'down') setFocusIndex(i => Math.min(getMaxIndex(), i + 1));
+      else if (direction === 'left') {
+        if (focusCategory === 'sidebar') { setFocusCategory('profile'); setFocusIndex(0); }
+        else if (focusCategory === 'tracks' || focusCategory === 'recently') { setFocusCategory('sidebar'); setFocusIndex(0); }
+        else if (focusCategory === 'albums' || focusCategory === 'artists') { setFocusCategory('sidebar'); setFocusIndex(0); }
+      } else if (direction === 'right') {
+        if (focusCategory === 'sidebar') {
+          if (view === 'home') setFocusCategory('recently');
+          else if (view === 'library') setFocusCategory('playlists');
+          else if (view === 'library-songs' || view === 'search') setFocusCategory('tracks');
+          else if (view === 'library-albums') setFocusCategory('albums');
+          else if (view === 'library-artists') setFocusCategory('artists');
+          setFocusIndex(0);
+        }
+      }
+
+      setTimeout(() => {
+        const activeEl = document.querySelector('[data-gamepad-focus="true"]');
+        if (activeEl) activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 50);
+    },
+    onSelect: () => {
+      if (consoleMode) {
+        const currentItem = flatItems[consoleFocus.row];
+        if (currentItem && currentItem.type !== 'category' && currentItem.action) {
+          currentItem.action();
+        }
+        return;
+      }
+
+      if (!currentUser && users[selectedProfileIndex]) {
+        const user = users[selectedProfileIndex];
+        if (user.hasPin) { setPinForProfile(user); setShowPinModal(true); setEnteredPin(['','','','']); setPinError(''); }
+        else {
+          apiFetch('/login', { method: 'POST', body: JSON.stringify({ username: user.username, pin: '' }) })
+            .then(r => r.json())
+            .then(d => {
+              if (d.token) { localStorage.setItem('localify_token', d.token); setCurrentUser(d.user); setFocusCategory('sidebar'); setFocusIndex(0); }
+            });
+        }
+        return;
+      }
+
+      if (focusCategory === 'sidebar') { const navItems = ['home', 'search', 'library']; if (focusIndex < navItems.length) setView(navItems[focusIndex]); }
+      else if (focusCategory === 'tracks' && tracks[focusIndex]) playTrack(tracks[focusIndex], tracks);
+      else if (focusCategory === 'recently' && recentlyPlayed[focusIndex]) playTrack(recentlyPlayed[focusIndex]);
+      else if (focusCategory === 'albums') { const albums = getUniqueAlbums(); if (albums[focusIndex]) { setSelectedAlbum(albums[focusIndex]); setView('album'); } }
+      else if (focusCategory === 'artists') { const artists = getUniqueArtists(); if (artists[focusIndex]) { setSelectedArtist(artists[focusIndex]); setView('artist'); } }
+      else if (focusCategory === 'playlists' && playlists[focusIndex]) { const p = playlists[focusIndex]; setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }
+      else if (focusCategory === 'library-tabs') { const tabs = ['library', 'library-songs', 'library-albums', 'library-artists']; if (tabs[focusIndex]) { setView(tabs[focusIndex]); setTimeout(() => { if (tabs[focusIndex] === 'library') setFocusCategory('playlists'); else if (tabs[focusIndex] === 'library-songs') setFocusCategory('tracks'); else if (tabs[focusIndex] === 'library-albums') setFocusCategory('albums'); else if (tabs[focusIndex] === 'library-artists') setFocusCategory('artists'); setFocusIndex(0); }, 50); } }
+    },
+    onBack: () => {
+      if (consoleMode) {
+        if (consoleView !== 'home') {
+          setConsoleView('home');
+          setConsoleFocus({ row: 0, col: 0 });
+        } else {
+          setConsoleMode(false);
+        }
+        return;
+      }
+      if (showPinModal) { setShowPinModal(false); return; }
+      if (selectedAlbum) { setSelectedAlbum(null); setView('home'); return; }
+      if (selectedArtist) { setSelectedArtist(null); setView('home'); return; }
+      if (activePlaylist) { setActivePlaylist(null); setView('library'); return; }
+      if (view !== 'home') { setView('home'); setFocusCategory('sidebar'); setFocusIndex(0); }
+    },
+    onPlayPause: () => { if (currentTrack) { if (isPlaying) audioRef.current.pause(); else audioRef.current.play().catch(() => {}); setIsPlaying(!isPlaying); } },
+    onNext: () => handleNext(),
+    onPrev: () => handlePrev(),
+    onVolumeUp: () => setVolume(v => Math.min(1, parseFloat(v) + 0.1)),
+    onVolumeDown: () => setVolume(v => Math.max(0, parseFloat(v) - 0.1)),
+  }), [currentUser, users, selectedProfileIndex, focusCategory, focusIndex, tracks, recentlyPlayed, playlists, showPinModal, selectedAlbum, selectedArtist, activePlaylist, view, currentTrack, isPlaying, consoleMode, flatItems, consoleFocus]);
+
+  const { gamepadConnected, controllerType } = useGamepad(gamepadHandlers);
+
+
+
+  const toggleConsoleMode = () => {
+    setConsoleMode(!consoleMode);
+    if (!consoleMode) {
+      setConsoleView('home');
+      setConsoleFocus({ row: 0, col: 0 });
+    }
+  };
+
+  useEffect(() => {
+    let items = [];
+    
+    if (consoleView === 'home') {
+      items = [
+        { type: 'category', label: 'Playlists', icon: 'list' },
+        ...playlists.slice(0, 6).map(p => ({ 
+          type: 'playlist', 
+          data: p,
+          label: p.name,
+          cover: null,
+          action: () => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setConsoleView('playlist'); setConsoleFocus({ row: 0, col: 0 }); }
+        })),
+        { type: 'category', label: 'Recently Played', icon: 'clock' },
+        ...recentlyPlayed.slice(0, 6).map(t => ({ 
+          type: 'track', 
+          data: t,
+          label: t.title,
+          sublabel: t.artist,
+          cover: t.hasPicture ? getCoverUrl(t.fileName) : null,
+          action: () => playTrack(t)
+        })),
+        { type: 'category', label: 'Albums', icon: 'disc' },
+        ...getUniqueAlbums().slice(0, 6).map(a => ({ 
+          type: 'album', 
+          data: a,
+          label: a.name,
+          sublabel: a.artist,
+          cover: a.cover ? getCoverUrl(a.cover.fileName) : null,
+          action: () => { setSelectedAlbum(a); setConsoleView('album'); setConsoleFocus({ row: 0, col: 0 }); }
+        })),
+        { type: 'category', label: 'Artists', icon: 'user' },
+        ...getUniqueArtists().slice(0, 6).map(a => ({ 
+          type: 'artist', 
+          data: a,
+          label: a.name,
+          cover: a.cover ? getCoverUrl(a.cover.fileName) : null,
+          action: () => { setSelectedArtist(a); setConsoleView('artist'); setConsoleFocus({ row: 0, col: 0 }); }
+        })),
+      ];
+    } else if (consoleView === 'playlist' || consoleView === 'album') {
+      const albumName = currentTrack?.album;
+      const albumTracks = albumName ? getAlbumTracks(albumName) : tracks.slice(0, 50);
+      items = albumTracks.map(t => ({
+        type: 'track',
+        data: t,
+        label: t.title,
+        sublabel: t.artist,
+        cover: t.hasPicture ? getCoverUrl(t.fileName) : null,
+        action: () => playTrack(t, albumTracks)
+      }));
+    } else if (consoleView === 'artist' && currentTrack) {
+      const artistName = currentTrack.artist;
+      items = [
+        { type: 'category', label: 'Songs', icon: 'music' },
+        ...getArtistTracks(artistName).slice(0, 30).map(t => ({
+          type: 'track',
+          data: t,
+          label: t.title,
+          sublabel: t.album,
+          cover: t.hasPicture ? getCoverUrl(t.fileName) : null,
+          action: () => playTrack(t)
+        })),
+        ...(getArtistAlbums(artistName).length > 0 ? [
+          { type: 'category', label: 'Albums', icon: 'disc' },
+          ...getArtistAlbums(artistName).slice(0, 6).map(a => ({
+            type: 'album',
+            data: a,
+            label: a.name,
+            cover: a.cover ? getCoverUrl(a.cover.fileName) : null,
+            action: () => { setSelectedAlbum(a); setConsoleView('album'); setConsoleFocus({ row: 0, col: 0 }); }
+          }))
+        ] : [])
+      ];
+    }
+    
+    setFlatItems(items);
+  }, [consoleView, playlists, recentlyPlayed, tracks, currentTrack]);
+
   const applyPreset = (key) => {
     const preset = equalizerPresets[key];
     if (preset) { setEqualizerPreset(key); setEqualizerValues(preset.values); }
@@ -456,45 +746,79 @@ function App() {
             <div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center"><Music className="w-6 h-6 text-black" /></div>
             <span className="text-xl md:text-2xl font-black">Localify</span>
           </div>
-          <button onClick={() => setShowRegister(!showRegister)} className="text-sm font-semibold text-white bg-white/10 hover:bg-white/20 px-4 md:px-5 py-2 md:py-2.5 rounded-full">{showRegister ? 'Sign In' : 'Create Account'}</button>
+          <div className="flex items-center gap-3">
+            {gamepadConnected && (
+              <div className="text-gray-400" title={`Controller connected (${controllerType})`}>
+                <Gamepad2 className="w-6 h-6" />
+              </div>
+            )}
+            <button onClick={() => setShowRegister(!showRegister)} className="text-sm font-semibold text-white bg-white/10 hover:bg-white/20 px-4 md:px-5 py-2 md:py-2.5 rounded-full">{showRegister ? 'Sign In' : 'Create Account'}</button>
+          </div>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center px-4">
           {!showRegister ? (
             users.length === 0 ? (
               <div className="text-center"><p className="text-xl md:text-2xl font-bold text-white mb-2">No profiles</p><button onClick={() => setShowRegister(true)} className="bg-brand-primary text-black font-bold py-3 px-8 md:px-10 rounded-full">Create Account</button></div>
             ) : (
-              <div className="text-center w-full max-w-md">
-                <p className="text-gray-400 text-sm uppercase tracking-widest mb-6 md:mb-8">Who's listening?</p>
-                <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 mb-6 md:mb-8">
-                  {users.map((u, i) => (
-                    <button 
-                      key={u.id} 
-                      onClick={() => setSelectedProfileIndex(i)}
-                      className={clsx(
-                        "flex flex-col items-center gap-2 md:gap-3 transition-all duration-300",
-                        i === selectedProfileIndex ? 'scale-100' : 'scale-75 opacity-40 hover:opacity-60'
-                      )}
-                    >
-                      <div className={clsx(
-                        "w-20 md:w-28 rounded-full flex items-center justify-center text-2xl md:text-3xl font-bold transition-all",
-                        i === selectedProfileIndex 
-                          ? 'bg-brand-primary text-black ring-4 ring-brand-primary/30' 
-                          : 'bg-white/10 text-white'
-                      )}>
-                        {u.username[0].toUpperCase()}
-                      </div>
-                      <span className={clsx(
-                        "font-medium transition-all",
-                        i === selectedProfileIndex ? 'text-white text-sm md:text-base' : 'text-gray-500 text-xs md:text-sm'
-                      )}>
-                        {u.username}
-                      </span>
-                    </button>
-                  ))}
+              <div className="text-center w-full max-w-4xl">
+                <p className="text-gray-400 text-sm uppercase tracking-widest mb-8">Who's listening?</p>
+                <div className="relative">
+                  <button 
+                    onClick={() => setSelectedProfileIndex(i => Math.max(0, i - 1))}
+                    disabled={selectedProfileIndex === 0}
+                    className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 z-10 w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  
+                  <div className="flex items-center justify-center gap-4 md:gap-6 overflow-hidden px-12">
+                    {users.map((u, i) => {
+                      const offset = i - selectedProfileIndex;
+                      const isActive = i === selectedProfileIndex;
+                      const scale = isActive ? 1 : 0.75;
+                      const opacity = isActive ? 1 : 0.4;
+                      
+                      return (
+                        <button 
+                          key={u.id} 
+                          onClick={() => setSelectedProfileIndex(i)}
+                          className="flex flex-col items-center gap-3 transition-all duration-300 ease-out"
+                          style={{
+                            transform: `scale(${scale})`,
+                            opacity: opacity,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <div className={clsx(
+                            "w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center text-3xl md:text-4xl font-bold transition-all",
+                            isActive 
+                              ? 'bg-brand-primary text-black' 
+                              : 'bg-white/10 text-white'
+                          )}>
+                            {u.username[0].toUpperCase()}
+                          </div>
+                          <span className={clsx(
+                            "font-medium transition-all",
+                            isActive ? 'text-white text-base' : 'text-gray-500 text-sm'
+                          )}>
+                            {u.username}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  <button 
+                    onClick={() => setSelectedProfileIndex(i => Math.min(users.length - 1, i + 1))}
+                    disabled={selectedProfileIndex === users.length - 1}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 z-10 w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ArrowLeft className="w-5 h-5 rotate-180" />
+                  </button>
                 </div>
                 <button 
                   onClick={() => users[selectedProfileIndex] && handleSelect(users[selectedProfileIndex])} 
-                  className="bg-brand-primary hover:bg-[#1ed760] text-black font-bold py-3 px-10 md:px-12 rounded-full transition-transform hover:scale-105"
+                  className="mt-10 bg-brand-primary hover:bg-[#1ed760] text-black font-bold py-3 px-12 md:px-14 rounded-full transition-transform hover:scale-105"
                 >
                   {t('play')}
                 </button>
@@ -605,10 +929,10 @@ function App() {
         {view === 'home' && (
           <>
             <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-6 px-3 sm:px-6">{t('goodEvening')}</h1>
-            {recentlyPlayed.length > 0 && <div className="mb-6 sm:mb-8 px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">Recently played</h2><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">{recentlyPlayed.slice(0,6).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer"><div className="w-10 sm:w-12 h-10 sm:h-12 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-5 sm:w-6 h-5 sm:h-6 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate flex-1">{t.title}</p></div>)}</div></div>}
-            <div className="mb-6 sm:mb-8 px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.slice(0, 20).map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></div>
-            <div className="px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('albums')}</h2><div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueAlbums().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate font-medium">{a.name}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{a.artist}</p></div>)}</div></div>
-            <div className="px-3 sm:px-6 mt-6 sm:mt-8"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('artists')}</h2><div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueArtists().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3 mx-auto w-16 sm:w-20 md:w-24 lg:w-28">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-8 sm:w-10 md:w-12 h-8 sm:h-10 md:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate text-center">{a.name}</p></div>)}</div></div>
+            {recentlyPlayed.length > 0 && <div className="mb-6 sm:mb-8 px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">Recently played</h2><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">{recentlyPlayed.slice(0,6).map((t, i) => <div key={t.id} {...getFocusProps('recently', i)} onClick={() => playTrack(t)} className={clsx("flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer", focusCategory === 'recently' && focusIndex === i && 'ring-2 ring-brand-primary')}>{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-10 sm:w-12 h-10 sm:h-12 bg-gray-800 rounded object-cover" /> : <Disc className="w-5 sm:w-6 h-5 sm:h-6 text-gray-600 m-auto" />}<p className="text-white text-xs sm:text-sm truncate flex-1">{t.title}</p></div>)}</div></div>}
+            <div className="mb-6 sm:mb-8 px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.slice(0, 20).map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}>{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></div>
+            <div className="px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('albums')}</h2><div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueAlbums().slice(0, 12).map((a, i) => <div {...getFocusProps('albums', i)} key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'albums' && focusIndex === i && 'ring-2 ring-brand-primary')}>{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3 object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 mx-auto" />}<p className="text-white text-xs sm:text-sm truncate font-medium">{a.name}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{a.artist}</p></div>)}</div></div>
+            <div className="px-3 sm:px-6 mt-6 sm:mt-8"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('artists')}</h2><div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueArtists().slice(0, 12).map((a, i) => <div {...getFocusProps('artists', i)} key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'artists' && focusIndex === i && 'ring-2 ring-brand-primary')}>{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3 mx-auto w-16 sm:w-20 md:w-24 lg:w-28 object-cover" /> : <User className="w-8 sm:w-10 md:w-12 h-8 sm:h-10 md:h-12 text-gray-600 mx-auto" />}<p className="text-white text-xs sm:text-sm truncate text-center">{a.name}</p></div>)}</div></div>
           </>
         )}
 
@@ -623,20 +947,22 @@ function App() {
           <div className="px-3 sm:px-6 pb-8">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 py-3 sm:py-4"><h1 className="text-2xl sm:text-3xl font-bold text-white">{t('library')}</h1><button onClick={() => setShowPlaylistModal(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/10 rounded-full text-white text-sm self-start"><Plus className="w-4 h-4" />{t('createPlaylist')}</button></div>
             <div className="flex gap-1 sm:gap-2 mb-4 sm:mb-6 overflow-x-auto pb-2">
-              <button onClick={() => setView('library')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('playlists')}</button>
-              <button onClick={() => setView('library-songs')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-songs' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('songs')}</button>
-              <button onClick={() => setView('library-albums')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-albums' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('albums')}</button>
-              <button onClick={() => setView('library-artists')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
+              <button {...getFocusProps('library-tabs', 0)} onClick={() => { setView('library'); setFocusCategory('library-tabs'); setFocusIndex(0); }} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('playlists')}</button>
+              <button {...getFocusProps('library-tabs', 1)} onClick={() => { setView('library-songs'); setFocusCategory('library-tabs'); setFocusIndex(1); }} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-songs' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('songs')}</button>
+              <button {...getFocusProps('library-tabs', 2)} onClick={() => { setView('library-albums'); setFocusCategory('library-tabs'); setFocusIndex(2); }} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-albums' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('albums')}</button>
+              <button {...getFocusProps('library-tabs', 3)} onClick={() => { setView('library-artists'); setFocusCategory('library-tabs'); setFocusIndex(3); }} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
             </div>
-            {view === 'library' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{playlists.map(p => <div key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3"><ListMusic className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" /></div><p className="text-white text-xs sm:text-sm truncate">{p.name}</p></div>)}</div>}
-            {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></>}
-            {view === 'library-albums' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueAlbums().map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate">{a.name}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{a.artist}</p></div>)}</div>}
-            {view === 'library-artists' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueArtists().map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3 mx-auto w-16 sm:w-20 md:w-24 lg:w-28">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-8 sm:w-10 md:w-12 h-8 sm:h-10 md:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate text-center">{a.name}</p></div>)}</div>}
+            {view === 'library' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{playlists.map((p, i) => <div {...getFocusProps('playlists', i)} key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'playlists' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3"><ListMusic className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" /></div><p className="text-white text-xs sm:text-sm truncate">{p.name}</p></div>)}</div>}
+            {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}>{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></>}
+            {view === 'library-albums' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueAlbums().map((a, i) => <div {...getFocusProps('albums', i)} key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'albums' && focusIndex === i && 'ring-2 ring-brand-primary')}>{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3 object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 mx-auto" />}<p className="text-white text-xs sm:text-sm truncate">{a.name}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{a.artist}</p></div>)}</div>}
+            {view === 'library-artists' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueArtists().map((a, i) => <div {...getFocusProps('artists', i)} key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'artists' && focusIndex === i && 'ring-2 ring-brand-primary')}>{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3 mx-auto w-16 sm:w-20 md:w-24 lg:w-28 object-cover" /> : <User className="w-8 sm:w-10 md:w-12 h-8 sm:h-10 md:h-12 text-gray-600 mx-auto" />}<p className="text-white text-xs sm:text-sm truncate text-center">{a.name}</p></div>)}</div>}
           </div>
         )}
       </div>
     );
   };
+
+  const isPS = controllerType === 'playstation';
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-black">
@@ -652,9 +978,9 @@ function App() {
               <div className="flex items-center gap-3"><div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center"><Music className="w-6 h-6 text-black" /></div><span className="text-xl font-black">Localify</span></div>
             </div>
             <nav className="space-y-1">
-              <button onClick={() => { setView('home'); setShowMobileMenu(false); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors", view === 'home' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5')}><Home className="w-6 h-6" /><span className="font-medium">{t('home')}</span></button>
-              <button onClick={() => { setView('search'); setShowMobileMenu(false); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors", view === 'search' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5')}><SearchIcon className="w-6 h-6" /><span className="font-medium">{t('search')}</span></button>
-              <button onClick={() => { setView('library'); setShowMobileMenu(false); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors", view === 'library' || view.startsWith('library') ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5')}><Library className="w-6 h-6" /><span className="font-medium">{t('library')}</span></button>
+              <button {...getFocusProps('sidebar', 0)} onClick={() => { setView('home'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(0); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'home' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 0 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><Home className="w-6 h-6" /><span className="font-medium">{t('home')}</span></button>
+              <button {...getFocusProps('sidebar', 1)} onClick={() => { setView('search'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(1); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'search' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 1 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><SearchIcon className="w-6 h-6" /><span className="font-medium">{t('search')}</span></button>
+              <button {...getFocusProps('sidebar', 2)} onClick={() => { setView('library'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(2); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'library' || view.startsWith('library') ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 2 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><Library className="w-6 h-6" /><span className="font-medium">{t('library')}</span></button>
             </nav>
             <div className="mt-6 md:mt-8">
               <div className="flex items-center justify-between px-4 mb-3"><span className="text-gray-400 text-sm font-medium uppercase">{t('playlists')}</span><button onClick={() => setShowPlaylistModal(true)} className="text-gray-400 hover:text-white"><Plus className="w-5 h-5" /></button></div>
@@ -673,6 +999,20 @@ function App() {
               <div className="relative w-full max-w-xs md:max-w-md lg:max-w-80 hidden sm:block"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); if (view !== 'search') setView('search'); }} placeholder={t('searchPlaceholder')} className="w-full bg-white/10 border border-transparent rounded-full py-2 pl-10 pr-4 text-white placeholder-gray-400 focus:outline-none focus:bg-white/20 text-sm" /></div>
             </div>
             <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
+              {gamepadConnected && currentUser && (
+                <button 
+                  onClick={toggleConsoleMode}
+                  className={clsx(
+                    "p-2 rounded-full transition-all",
+                    consoleMode 
+                      ? "bg-brand-primary text-black" 
+                      : "text-gray-400 hover:text-white hover:bg-white/10"
+                  )}
+                  title={consoleMode ? "Quitter le mode console" : "Mode Console TV"}
+                >
+                  <Gamepad2 className="w-5 h-5" />
+                </button>
+              )}
               <button onClick={() => setShowUploadModal(true)} className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10" title="Upload Music"><Upload className="w-5 h-5" /></button>
               <button onClick={() => setShowEqualizer(true)} className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10 hidden sm:flex"><Sliders className="w-6 h-6" /></button>
               <button onClick={() => setView('settings')} className={clsx("p-2 rounded-full", view === 'settings' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10')}><Settings className="w-6 h-6" /></button>
@@ -847,6 +1187,194 @@ function App() {
           <div className="flex justify-end"><button onClick={() => setShowEqualizer(false)} className="px-5 sm:px-6 py-1.5 sm:py-2 bg-brand-primary text-black font-semibold rounded-full text-sm sm:text-base">Done</button></div>
         </div>
       </Modal>
+
+      {gamepadConnected && currentUser && (
+        <GamepadHints controllerType={controllerType} mode="navigation" />
+      )}
+
+      {consoleMode && currentUser && (
+        <ConsoleModeView
+          currentTrack={currentTrack}
+          isPlaying={isPlaying}
+          consoleView={consoleView}
+          setConsoleView={setConsoleView}
+          consoleFocus={consoleFocus}
+          setConsoleFocus={setConsoleFocus}
+          flatItems={flatItems}
+          controllerType={controllerType}
+          onPlayPause={() => { if (currentTrack) { if (isPlaying) audioRef.current.pause(); else audioRef.current.play().catch(() => {}); setIsPlaying(!isPlaying); } }}
+          onNext={handleNext}
+          onPrev={handlePrev}
+          onVolumeUp={() => setVolume(v => Math.min(1, parseFloat(v) + 0.1))}
+          onVolumeDown={() => setVolume(v => Math.max(0, parseFloat(v) - 0.1))}
+          getCoverUrl={getCoverUrl}
+          setConsoleMode={setConsoleMode}
+          volume={volume}
+          currentTime={currentTime}
+          duration={duration}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConsoleModeView({
+  currentTrack, isPlaying,
+  consoleView, setConsoleView, consoleFocus, setConsoleFocus,
+  flatItems, controllerType, onPlayPause, onNext, onPrev,
+  onVolumeUp, onVolumeDown, getCoverUrl, setConsoleMode, volume, currentTime, duration
+}) {
+  const isPS = controllerType === 'playstation';
+  const listRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (listRef.current && flatItems.length > 0) {
+      const el = listRef.current.children[consoleFocus.row];
+      if (el) {
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [consoleFocus.row, flatItems.length]);
+
+  const getViewTitle = () => {
+    const titles = {
+      home: 'Localify',
+      playlist: currentTrack?.album || 'Playlist',
+      album: currentTrack?.album || 'Album',
+      artist: currentTrack?.artist || 'Artist'
+    };
+    return titles[consoleView] || 'Localify';
+  };
+
+  const isFocused = (index) => consoleFocus.row === index;
+
+  const getItemIcon = (icon) => {
+    switch(icon) {
+      case 'list': return <ListMusic className="w-5 h-5" />;
+      case 'clock': return <SkipBack className="w-5 h-5" />;
+      case 'disc': return <Disc className="w-5 h-5" />;
+      case 'user': return <User className="w-5 h-5" />;
+      case 'music': return <Music className="w-5 h-5" />;
+      default: return null;
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+      <div className="h-14 bg-gradient-to-b from-[#1a1a1a] to-transparent flex items-center px-4">
+        <button 
+          onClick={() => setConsoleMode(false)}
+          className="text-gray-400 hover:text-white p-2 hover:bg-white/10 rounded-lg transition-colors mr-2"
+        >
+          <X className="w-5 h-5" />
+        </button>
+        <span className="text-white font-bold text-lg">{getViewTitle()}</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4" ref={listRef}>
+        {flatItems.map((item, index) => {
+          if (item.type === 'category') {
+            return (
+              <div key={index} className="flex items-center gap-2 py-3 px-2">
+                {getItemIcon(item.icon)}
+                <span className="text-white font-bold text-lg">{item.label}</span>
+              </div>
+            );
+          }
+          
+          return (
+            <div 
+              key={index}
+              onClick={item.action}
+              className={clsx(
+                "flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all mb-1",
+                isFocused(index) 
+                  ? "bg-brand-primary/20 ring-2 ring-brand-primary" 
+                  : "hover:bg-white/5"
+              )}
+            >
+              <div className={clsx(
+                "w-14 h-14 rounded-lg overflow-hidden flex-shrink-0",
+                item.cover ? "" : "bg-gray-800 flex items-center justify-center"
+              )}>
+                {item.cover ? (
+                  <img src={item.cover} className="w-full h-full object-cover" />
+                ) : (
+                  item.type === 'playlist' ? <ListMusic className="w-7 h-7 text-gray-600" /> :
+                  item.type === 'album' ? <Disc className="w-7 h-7 text-gray-600" /> :
+                  item.type === 'artist' ? <User className="w-7 h-7 text-gray-600" /> :
+                  <Music className="w-7 h-7 text-gray-600" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={clsx("font-medium truncate", currentTrack?.id === item.data?.id ? "text-brand-primary" : "text-white")}>
+                  {item.label}
+                </p>
+                {item.sublabel && <p className="text-gray-500 text-sm truncate">{item.sublabel}</p>}
+              </div>
+              {isFocused(index) && (
+                <div className="w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center flex-shrink-0">
+                  <Play className="w-4 h-4 text-black ml-0.5" />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="h-24 bg-[#181818] border-t border-white/10 px-6 flex flex-col justify-center">
+        {currentTrack && (
+          <div className="flex items-center gap-4 mb-2">
+            <div className="w-12 h-12 bg-gray-800 rounded-lg overflow-hidden flex-shrink-0">
+              {currentTrack.hasPicture ? (
+                <img src={getCoverUrl(currentTrack.fileName)} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
+                  <Disc className="w-5 h-5 text-gray-500" />
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-medium truncate">{currentTrack.title}</p>
+              <p className="text-gray-400 text-sm truncate">{currentTrack.artist}</p>
+            </div>
+          </div>
+        )}
+        
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-gray-500 text-xs w-10">{Math.floor(currentTime/60)}:{String(Math.floor(currentTime%60)).padStart(2,'0')}</span>
+            <div className="w-48 sm:w-64 h-1.5 bg-white/20 rounded-full overflow-hidden">
+              <div className="h-full bg-brand-primary rounded-full" style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }} />
+            </div>
+            <span className="text-gray-500 text-xs w-10">{Math.floor(duration/60)}:{String(Math.floor(duration%60)).padStart(2,'0')}</span>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <button onClick={onPrev} className="text-gray-400 hover:text-white p-2">
+              <SkipBack className="w-6 h-6" />
+            </button>
+            <button onClick={onPlayPause} className="w-12 h-12 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform">
+              {isPlaying ? <Pause className="w-6 h-6 text-black" /> : <Play className="w-6 h-6 text-black ml-1" />}
+            </button>
+            <button onClick={onNext} className="text-gray-400 hover:text-white p-2">
+              <SkipForward className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button onClick={onVolumeDown} className="text-gray-400 hover:text-white p-1">
+              <Volume2 className="w-5 h-5 transform rotate-180" />
+            </button>
+            <div className="w-20 h-1.5 bg-white/20 rounded-full overflow-hidden">
+              <div className="h-full bg-white rounded-full" style={{ width: `${volume * 100}%` }} />
+            </div>
+            <button onClick={onVolumeUp} className="text-gray-400 hover:text-white p-1">
+              <Volume2 className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
