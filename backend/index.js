@@ -144,12 +144,24 @@ app.post('/api/login', async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
+  let pinMatch = false;
+  
   if (user.pin) {
-    const pinMatch = await bcrypt.compare(pin, user.pin);
-    if (!pinMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    const isHashed = user.pin.length === 60 && user.pin.startsWith('$2');
+    if (isHashed) {
+      pinMatch = await bcrypt.compare(pin, user.pin);
+    } else {
+      pinMatch = user.pin === pin;
+      if (pinMatch) {
+        const hashedPin = await bcrypt.hash(pin, 10);
+        db.prepare('UPDATE users SET pin = ? WHERE id = ?').run(hashedPin, user.id);
+      }
     }
   } else if (user.pin !== pin) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  if (!pinMatch) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
@@ -165,6 +177,11 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.post('/api/logout', authenticate, (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader.split(' ')[1];
+  db.prepare('DELETE FROM auth_tokens WHERE token = ?').run(token);
+  res.json({ success: true });
+});
 
 app.get('/api/profiles', optionalAuth, (req, res) => {
     const users = db.prepare('SELECT id, username, group_id, is_admin FROM users').all();
@@ -173,11 +190,6 @@ app.get('/api/profiles', optionalAuth, (req, res) => {
 
 app.get('/api/users', optionalAuth, (req, res) => {
     const users = db.prepare('SELECT id, username, group_id, is_admin, pin IS NOT NULL as hasPin FROM users').all();
-    res.json(users);
-});
-
-app.get('/api/profiles', authenticate, (req, res) => {
-    const users = db.prepare('SELECT id, username, group_id, is_admin FROM users').all();
     res.json(users);
 });
 
