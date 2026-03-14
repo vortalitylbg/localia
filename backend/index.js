@@ -22,7 +22,7 @@ const corsOptions = {
       'http://localhost:3000',
       'http://127.0.0.1:3000'
     ];
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://192.168.') || origin.startsWith('http://10.') || origin.startsWith('http://172.')) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -540,7 +540,7 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req, res) =>
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Localify backend running at http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Localify backend running on http://0.0.0.0:${PORT}`);
     if (!fs.existsSync(MUSIC_DIR)) fs.mkdirSync(MUSIC_DIR);
 });
