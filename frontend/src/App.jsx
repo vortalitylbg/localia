@@ -9,12 +9,12 @@ const API_BASE = 'http://127.0.0.1:5000/api';
 
 const getStreamUrl = (fileName) => {
   const token = localStorage.getItem('localify_token');
-  return `getStreamUrl${encodeURIComponent(fileName)}${token ? `?token=${token}` : ''}`;
+  return `${API_BASE}/stream/${encodeURIComponent(fileName)}${token ? `?token=${token}` : ''}`;
 };
 
 const getCoverUrl = (fileName) => {
   const token = localStorage.getItem('localify_token');
-  return `getCoverUrl${encodeURIComponent(fileName)}${token ? `?token=${token}` : ''}`;
+  return `${API_BASE}/cover/${encodeURIComponent(fileName)}${token ? `?token=${token}` : ''}`;
 };
 
 const getAuthHeaders = () => {

@@ -36,8 +36,10 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 const optionalAuth = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.split(' ')[1];
+  let token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    token = req.query.token;
+  }
   
   if (!token) {
     req.user = null;
@@ -135,8 +137,8 @@ app.get('/api/ping', (req, res) => res.json({ status: 'ok' }));
 app.post('/api/login', async (req, res) => {
   const { username, pin } = req.body;
   
-  if (!username || !pin) {
-    return res.status(400).json({ error: 'Username and PIN required' });
+  if (!username) {
+    return res.status(400).json({ error: 'Username required' });
   }
 
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
@@ -144,10 +146,12 @@ app.post('/api/login', async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  let pinMatch = false;
-  
   if (user.pin) {
+    if (!pin) {
+      return res.status(401).json({ error: 'PIN required for this user' });
+    }
     const isHashed = user.pin.length === 60 && user.pin.startsWith('$2');
+    let pinMatch = false;
     if (isHashed) {
       pinMatch = await bcrypt.compare(pin, user.pin);
     } else {
@@ -157,12 +161,9 @@ app.post('/api/login', async (req, res) => {
         db.prepare('UPDATE users SET pin = ? WHERE id = ?').run(hashedPin, user.id);
       }
     }
-  } else if (user.pin !== pin) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-
-  if (!pinMatch) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+    if (!pinMatch) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
   }
 
   const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
