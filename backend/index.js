@@ -5,14 +5,97 @@ const fs = require('fs');
 const mm = require('music-metadata');
 const db = require('./database');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 const MUSIC_DIR = path.join(__dirname, '../music');
+const JWT_SECRET = process.env.JWT_SECRET || 'localify-dev-secret-change-in-production';
+const TOKEN_EXPIRY = 7 * 24 * 60 * 60 * 1000;
 
-app.use(cors());
-app.use(express.json());
+const corsOptions = {
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:3000'
+    ];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+};
+
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+const optionalAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(' ')[1];
+  
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+  
+  const tokenRecord = db.prepare(`
+    SELECT auth_tokens.user_id, auth_tokens.expires_at 
+    FROM auth_tokens WHERE token = ?
+  `).get(token);
+
+  if (!tokenRecord || new Date(tokenRecord.expires_at) < new Date()) {
+    req.user = null;
+    return next();
+  }
+
+  const user = db.prepare('SELECT id, username, group_id, is_admin FROM users WHERE id = ?').get(tokenRecord.user_id);
+  req.user = user || null;
+  next();
+};
+
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  
+  const tokenRecord = db.prepare(`
+    SELECT auth_tokens.user_id, auth_tokens.expires_at 
+    FROM auth_tokens WHERE token = ?
+  `).get(token);
+
+  if (!tokenRecord) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  if (new Date(tokenRecord.expires_at) < new Date()) {
+    db.prepare('DELETE FROM auth_tokens WHERE token = ?').run(token);
+    return res.status(401).json({ error: 'Token expired' });
+  }
+
+  const user = db.prepare('SELECT id, username, group_id, is_admin FROM users WHERE id = ?').get(tokenRecord.user_id);
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' });
+  }
+
+  req.user = user;
+  next();
+};
+
+const requireAdmin = (req, res, next) => {
+  if (!req.user || !req.user.is_admin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -20,35 +103,22 @@ const storage = multer.diskStorage({
         cb(null, MUSIC_DIR);
     },
     filename: (req, file, cb) => {
-        cb(null, file.originalname);
+        const sanitized = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+        cb(null, sanitized);
     }
 });
 
 const upload = multer({ 
     storage,
+    limits: { fileSize: 100 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         const ext = file.originalname.toLowerCase().split('.').pop();
-        if (['mp3', 'flac', 'm4a'].includes(ext)) {
+        if (['mp3', 'flac', 'm4a', 'wav', 'ogg'].includes(ext)) {
             cb(null, true);
         } else {
             cb(new Error('Only audio files allowed'), false);
         }
     }
-});
-
-app.post('/api/upload', upload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    
-    const fileName = req.file.originalname;
-    const filePath = path.join(MUSIC_DIR, fileName);
-    
-    if (fs.existsSync(filePath)) {
-        return res.status(409).json({ error: 'File already exists', fileName });
-    }
-    
-    const tracks = await scanMusic();
-    const newTrack = tracks.find(t => t.fileName === fileName);
-    res.json(newTrack || { fileName, title: fileName });
 });
 
 app.use((err, req, res, next) => {
@@ -62,18 +132,60 @@ app.use((err, req, res, next) => {
 
 app.get('/api/ping', (req, res) => res.json({ status: 'ok' }));
 
-// Profiles Endpoint - Returns all users without passwords
-app.get('/api/profiles', (req, res) => {
+app.post('/api/login', async (req, res) => {
+  const { username, pin } = req.body;
+  
+  if (!username || !pin) {
+    return res.status(400).json({ error: 'Username and PIN required' });
+  }
+
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  if (user.pin) {
+    const pinMatch = await bcrypt.compare(pin, user.pin);
+    if (!pinMatch) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+  } else if (user.pin !== pin) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+  const expiresAt = new Date(Date.now() + TOKEN_EXPIRY).toISOString();
+  
+  db.prepare('INSERT INTO auth_tokens (user_id, token, expires_at) VALUES (?, ?, ?)').run(user.id, token, expiresAt);
+
+  res.json({
+    token,
+    user: { id: user.id, username: user.username, group_id: user.group_id, is_admin: user.is_admin }
+  });
+});
+
+app.post('/api/logout', authenticate, (req, res) => {
+
+app.get('/api/profiles', optionalAuth, (req, res) => {
     const users = db.prepare('SELECT id, username, group_id, is_admin FROM users').all();
     res.json(users);
 });
 
-// Function to scan music directory
+app.get('/api/users', optionalAuth, (req, res) => {
+    const users = db.prepare('SELECT id, username, group_id, is_admin, pin IS NOT NULL as hasPin FROM users').all();
+    res.json(users);
+});
+
+app.get('/api/profiles', authenticate, (req, res) => {
+    const users = db.prepare('SELECT id, username, group_id, is_admin FROM users').all();
+    res.json(users);
+});
+
 async function scanMusic() {
     if (!fs.existsSync(MUSIC_DIR)) return [];
     const files = fs.readdirSync(MUSIC_DIR);
     const musicFiles = files.filter(file => 
-        file.endsWith('.mp3') || file.endsWith('.flac') || file.endsWith('.m4a')
+        file.endsWith('.mp3') || file.endsWith('.flac') || file.endsWith('.m4a') || file.endsWith('.wav') || file.endsWith('.ogg')
     );
 
     const tracks = [];
@@ -103,13 +215,12 @@ async function scanMusic() {
     return tracks;
 }
 
-// User & Group Endpoints
-app.get('/api/users', (req, res) => {
+app.get('/api/users', authenticate, (req, res) => {
     const users = db.prepare('SELECT id, username, group_id, is_admin, pin IS NOT NULL as hasPin FROM users').all();
     res.json(users);
 });
 
-app.post('/api/verify-pin', (req, res) => {
+app.post('/api/verify-pin', authenticate, (req, res) => {
     const { userId, pin } = req.body;
     if (!userId || !pin) return res.status(400).json({ error: "Missing userId or pin" });
     
@@ -123,10 +234,12 @@ app.post('/api/verify-pin', (req, res) => {
     }
 });
 
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', optionalAuth, async (req, res) => {
     const { username, pin, groupName, groupInvite } = req.body;
     
-    if (!username) return res.status(400).json({ error: "Username is required" });
+    if (!username || username.trim().length < 2 || username.length > 20) {
+      return res.status(400).json({ error: "Username must be 2-20 characters" });
+    }
     
     if (pin && (pin.length !== 4 || !/^\d{4}$/.test(pin))) {
         return res.status(400).json({ error: "PIN must be exactly 4 digits" });
@@ -145,51 +258,68 @@ app.post('/api/register', async (req, res) => {
             groupId = group.id;
         }
 
-        const info = db.prepare('INSERT INTO users (username, pin, group_id) VALUES (?, ?, ?)').run(username, pin || null, groupId);
-        res.json({ id: info.lastInsertRowid, username, hasPin: !!pin });
+        const hashedPin = pin ? await bcrypt.hash(pin, 10) : null;
+        const info = db.prepare('INSERT INTO users (username, pin, group_id) VALUES (?, ?, ?)').run(username.trim(), hashedPin, groupId);
+        res.json({ id: info.lastInsertRowid, username: username.trim(), hasPin: !!pin });
     } catch (e) {
         console.error("Registration Error:", e);
+        if (e.message.includes('UNIQUE constraint')) {
+          return res.status(400).json({ error: "Username already exists" });
+        }
         res.status(400).json({ error: e.message || "Registration failed" });
     }
 });
 
-app.get('/api/groups/:id', (req, res) => {
+app.get('/api/groups/:id', authenticate, (req, res) => {
     const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params.id);
     res.json(group);
 });
 
-// User Management Endpoints
-app.put('/api/users/:id', (req, res) => {
+app.put('/api/users/:id', authenticate, (req, res) => {
     const userId = req.params.id;
     const { username } = req.body;
     
-    if (!username) return res.status(400).json({ error: "Username is required" });
+    if (req.user.id !== parseInt(userId) && !req.user.is_admin) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
     
-    const info = db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, userId);
-    if (info.changes === 0) return res.status(404).json({ error: "User not found" });
+    if (!username || username.trim().length < 2) {
+      return res.status(400).json({ error: "Username is required" });
+    }
     
-    res.json({ success: true, username });
+    try {
+      const info = db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username.trim(), userId);
+      if (info.changes === 0) return res.status(404).json({ error: "User not found" });
+      res.json({ success: true, username: username.trim() });
+    } catch (e) {
+      if (e.message.includes('UNIQUE constraint')) {
+        return res.status(400).json({ error: "Username already exists" });
+      }
+      res.status(400).json({ error: e.message });
+    }
 });
 
-app.delete('/api/users/:id', (req, res) => {
+app.delete('/api/users/:id', authenticate, (req, res) => {
     const userId = req.params.id;
     
-    // Check if user has playlists
+    if (req.user.id !== parseInt(userId) && !req.user.is_admin) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    
     const playlists = db.prepare('SELECT id FROM playlists WHERE owner_id = ?').all(userId);
     if (playlists.length > 0) {
-        // Delete user's playlists and playlist tracks
         db.prepare('DELETE FROM playlist_tracks WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)').run(userId);
         db.prepare('DELETE FROM playlists WHERE owner_id = ?').run(userId);
     }
     
+    db.prepare('DELETE FROM auth_tokens WHERE user_id = ?').run(userId);
     const info = db.prepare('DELETE FROM users WHERE id = ?').run(userId);
     if (info.changes === 0) return res.status(404).json({ error: "User not found" });
     
     res.json({ success: true });
 });
 
-// Playlist Endpoints
-app.get('/api/playlists/:userId', (req, res) => {
+app.get('/api/playlists/:userId', authenticate, (req, res) => {
     const userId = req.params.userId;
     const user = db.prepare('SELECT group_id FROM users WHERE id = ?').get(userId);
     
@@ -206,46 +336,73 @@ app.get('/api/playlists/:userId', (req, res) => {
     res.json(playlists);
 });
 
-app.post('/api/playlists', (req, res) => {
+app.post('/api/playlists', authenticate, (req, res) => {
     const { name, userId, isGroupShared } = req.body;
+    
+    if (!name || name.trim().length < 1) {
+      return res.status(400).json({ error: "Playlist name is required" });
+    }
+    
     const user = db.prepare('SELECT group_id FROM users WHERE id = ?').get(userId);
     
     const info = db.prepare(`
         INSERT INTO playlists (name, owner_id, is_group_shared, group_id) 
         VALUES (?, ?, ?, ?)
-    `).run(name, userId, isGroupShared ? 1 : 0, isGroupShared ? user.group_id : null);
+    `).run(name.trim(), userId, isGroupShared ? 1 : 0, isGroupShared ? user?.group_id : null);
     
     const newPlaylist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(info.lastInsertRowid);
     res.json(newPlaylist);
 });
 
-app.delete('/api/playlists/:id', (req, res) => {
+app.delete('/api/playlists/:id', authenticate, (req, res) => {
     const playlistId = req.params.id;
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(playlistId);
+    
+    if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+    if (playlist.owner_id !== req.user.id && !req.user.is_admin) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    
     db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ?').run(playlistId);
-    const info = db.prepare('DELETE FROM playlists WHERE id = ?').run(playlistId);
-    if (info.changes === 0) return res.status(404).json({ error: "Playlist not found" });
+    db.prepare('DELETE FROM playlists WHERE id = ?').run(playlistId);
     res.json({ success: true });
 });
 
-app.delete('/api/playlists/:id/tracks/:trackId', (req, res) => {
+app.delete('/api/playlists/:id/tracks/:trackId', authenticate, (req, res) => {
     const playlistId = req.params.id;
     const trackId = req.params.trackId;
     db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?').run(playlistId, trackId);
     res.json({ success: true });
 });
 
-app.put('/api/playlists/:id', (req, res) => {
+app.put('/api/playlists/:id', authenticate, (req, res) => {
     const playlistId = req.params.id;
     const { name } = req.body;
-    if (!name) return res.status(400).json({ error: "Name is required" });
     
-    db.prepare('UPDATE playlists SET name = ? WHERE id = ?').run(name, playlistId);
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(playlistId);
+    if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+    if (playlist.owner_id !== req.user.id && !req.user.is_admin) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    
+    if (!name || name.trim().length < 1) {
+      return res.status(400).json({ error: "Name is required" });
+    }
+    
+    db.prepare('UPDATE playlists SET name = ? WHERE id = ?').run(name.trim(), playlistId);
     res.json({ success: true });
 });
 
-app.post('/api/playlists/:id/tracks', (req, res) => {
+app.post('/api/playlists/:id/tracks', authenticate, (req, res) => {
     const playlistId = req.params.id;
     const { trackId } = req.body;
+    
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(playlistId);
+    if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+    if (playlist.owner_id !== req.user.id && !req.user.is_admin) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    
     try {
         db.prepare('INSERT INTO playlist_tracks (playlist_id, track_id) VALUES (?, ?)').run(playlistId, trackId);
         res.json({ success: true });
@@ -254,7 +411,7 @@ app.post('/api/playlists/:id/tracks', (req, res) => {
     }
 });
 
-app.delete('/api/tracks/:fileName', (req, res) => {
+app.delete('/api/tracks/:fileName', authenticate, requireAdmin, (req, res) => {
     const fileName = req.params.fileName;
     const filePath = path.join(MUSIC_DIR, fileName);
     
@@ -270,7 +427,7 @@ app.delete('/api/tracks/:fileName', (req, res) => {
     }
 });
 
-app.get('/api/playlists/:id/tracks', async (req, res) => {
+app.get('/api/playlists/:id/tracks', authenticate, async (req, res) => {
     const playlistId = req.params.id;
     const trackIds = db.prepare('SELECT track_id FROM playlist_tracks WHERE playlist_id = ?').all(playlistId);
     const allTracks = await scanMusic();
@@ -278,7 +435,7 @@ app.get('/api/playlists/:id/tracks', async (req, res) => {
     res.json(tracksInPlaylist);
 });
 
-app.get('/api/tracks', async (req, res) => {
+app.get('/api/tracks', optionalAuth, async (req, res) => {
     try {
         const tracks = await scanMusic();
         res.json(tracks);
@@ -287,8 +444,14 @@ app.get('/api/tracks', async (req, res) => {
     }
 });
 
-app.get('/api/stream/:fileName', (req, res) => {
+app.get('/api/stream/:fileName', optionalAuth, (req, res) => {
     const fileName = req.params.fileName;
+    const token = req.query.token;
+    
+    if (!fileName || fileName.includes('..') || fileName.includes('/') || fileName.includes('\\')) {
+      return res.status(400).json({ error: "Invalid filename" });
+    }
+    
     const filePath = path.join(MUSIC_DIR, fileName);
     if (!fs.existsSync(filePath)) return res.status(404).send('File not found');
 
@@ -320,8 +483,13 @@ app.get('/api/stream/:fileName', (req, res) => {
     }
 });
 
-app.get('/api/cover/:fileName', async (req, res) => {
+app.get('/api/cover/:fileName', optionalAuth, async (req, res) => {
     const fileName = req.params.fileName;
+    
+    if (!fileName || fileName.includes('..') || fileName.includes('/') || fileName.includes('\\')) {
+      return res.status(400).json({ error: "Invalid filename" });
+    }
+    
     const filePath = path.join(MUSIC_DIR, fileName);
     if (!fs.existsSync(filePath)) return res.status(404).send('File not found');
 
@@ -337,6 +505,21 @@ app.get('/api/cover/:fileName', async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
+});
+
+app.post('/api/upload', authenticate, requireAdmin, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    
+    const fileName = req.file.filename;
+    const filePath = path.join(MUSIC_DIR, fileName);
+    
+    if (fs.existsSync(filePath)) {
+        return res.status(409).json({ error: 'File already exists', fileName });
+    }
+    
+    const tracks = await scanMusic();
+    const newTrack = tracks.find(t => t.fileName === fileName);
+    res.json(newTrack || { fileName, title: fileName });
 });
 
 app.listen(PORT, () => {

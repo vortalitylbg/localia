@@ -7,6 +7,39 @@ import clsx from 'clsx';
 
 const API_BASE = 'http://127.0.0.1:5000/api';
 
+const getStreamUrl = (fileName) => {
+  const token = localStorage.getItem('localify_token');
+  return `getStreamUrl${encodeURIComponent(fileName)}${token ? `?token=${token}` : ''}`;
+};
+
+const getCoverUrl = (fileName) => {
+  const token = localStorage.getItem('localify_token');
+  return `getCoverUrl${encodeURIComponent(fileName)}${token ? `?token=${token}` : ''}`;
+};
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('localify_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
+const apiFetch = async (url, options = {}) => {
+  const res = await fetch(`${API_BASE}${url}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+      ...options.headers,
+    },
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('localify_token');
+    localStorage.removeItem('localify_user');
+    window.location.reload();
+    return null;
+  }
+  return res;
+};
+
 function Modal({ isOpen, onClose, title, children, size = 'md' }) {
   if (!isOpen) return null;
   const sizeClasses = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
@@ -95,18 +128,23 @@ function App() {
 
   useEffect(() => { localStorage.setItem('localify_language', language); }, [language]);
 
-  useEffect(() => {
-    fetch(`${API_BASE}/users`).then(r => r.json()).then(setUsers).catch(() => {});
-    fetch(`${API_BASE}/tracks`).then(r => r.json()).then(data => { setTracks(data); setCurrentPlayList(data); }).catch(() => {});
+  useEffect(() => { 
+    apiFetch('/users').then(r => r?.json()).then(setUsers).catch(() => {}); 
+    apiFetch('/tracks').then(r => r?.json()).then(data => { if (data) { setTracks(data); setCurrentPlayList(data); } }).catch(() => {});
   }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem('localify_user');
-    if (saved) {
+    const token = localStorage.getItem('localify_token');
+    if (saved && token) {
       try {
         const user = JSON.parse(saved);
-        fetch(`${API_BASE}/users`).then(r => r.json()).then(data => {
-          if (data.find(u => u.id === user.id)) setCurrentUser(user);
+        apiFetch('/users').then(r => r?.json()).then(data => {
+          if (data?.find(u => u.id === user.id)) setCurrentUser(user);
+          else {
+            localStorage.removeItem('localify_token');
+            localStorage.removeItem('localify_user');
+          }
         });
       } catch {}
     }
@@ -115,10 +153,12 @@ function App() {
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('localify_user', JSON.stringify(currentUser));
-      fetch(`${API_BASE}/playlists/${currentUser.id}`).then(r => r.json()).then(data => {
-        setPlaylists(data);
-        const fav = data.find(p => p.name === 'Favorites');
-        if (fav) setFavoritesPlaylist(fav);
+      apiFetch(`/playlists/${currentUser.id}`).then(r => r?.json()).then(data => {
+        if (data) {
+          setPlaylists(data);
+          const fav = data.find(p => p.name === 'Favorites');
+          if (fav) setFavoritesPlaylist(fav);
+        }
       });
     }
   }, [currentUser]);
@@ -152,7 +192,7 @@ function App() {
     }
     setCurrentTrack(track);
     setIsPlaying(true);
-    audioRef.current.src = `${API_BASE}/stream/${encodeURIComponent(track.fileName)}`;
+    audioRef.current.src = `getStreamUrl${encodeURIComponent(track.fileName)}`;
     audioRef.current.play().catch(() => {});
     setRecentlyPlayed(prev => [track, ...prev.filter(t => t.id !== track.id)].slice(0, 20));
   };
@@ -176,24 +216,24 @@ function App() {
 
   const toggleFavorite = async (track) => {
     if (!favoritesPlaylist) {
-      const res = await fetch(`${API_BASE}/playlists`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name: 'Favorites', userId: currentUser.id }) });
+      const res = await apiFetch('/playlists', { method: 'POST', body: JSON.stringify({ name: 'Favorites', userId: currentUser.id }) });
       const newP = await res.json();
       setPlaylists(prev => [...prev, newP]);
       setFavoritesPlaylist(newP);
-      await fetch(`${API_BASE}/playlists/${newP.id}/tracks`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ trackId: track.id }) });
+      await apiFetch(`/playlists/${newP.id}/tracks`, { method: 'POST', body: JSON.stringify({ trackId: track.id }) });
       return;
     }
     const isFav = playlistTracks.some(t => t.id === track.id);
-    if (isFav) await fetch(`${API_BASE}/playlists/${favoritesPlaylist.id}/tracks/${encodeURIComponent(track.id)}`, { method: 'DELETE' });
-    else await fetch(`${API_BASE}/playlists/${favoritesPlaylist.id}/tracks`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ trackId: track.id }) });
-    const res = await fetch(`${API_BASE}/playlists/${favoritesPlaylist.id}/tracks`);
+    if (isFav) await apiFetch(`${favoritesPlaylist.id}/tracks/${encodeURIComponent(track.id)}`, { method: 'DELETE' });
+    else await apiFetch(`${favoritesPlaylist.id}/tracks`, { method: 'POST', body: JSON.stringify({ trackId: track.id }) });
+    const res = await apiFetch(`${favoritesPlaylist.id}/tracks`);
     setPlaylistTracks(await res.json());
   };
 
   const createPlaylist = () => {
     if (!newPlaylistName.trim()) return;
-    fetch(`${API_BASE}/playlists`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name: newPlaylistName, userId: currentUser.id }) })
-      .then(() => fetch(`${API_BASE}/playlists/${currentUser.id}`).then(r => r.json()).then(setPlaylists))
+    apiFetch('/playlists', { method: 'POST', body: JSON.stringify({ name: newPlaylistName, userId: currentUser.id }) })
+      .then(() => apiFetch(`/playlists/${currentUser.id}`).then(r => r?.json()).then(setPlaylists))
       .then(() => { setShowPlaylistModal(false); setNewPlaylistName(''); });
   };
 
@@ -234,15 +274,27 @@ function App() {
   };
 
   if (!currentUser) {
-    const handleSelect = (user) => {
+    const handleSelect = async (user) => {
       if (user.hasPin) { setPinForProfile(user); setShowPinModal(true); setEnteredPin(['','','','']); setPinError(''); }
-      else setCurrentUser(user);
+      else {
+        const res = await apiFetch('/login', { method: 'POST', body: JSON.stringify({ username: user.username, pin: '' }) });
+        const d = await res.json();
+        if (d.token) {
+          localStorage.setItem('localify_token', d.token);
+          setCurrentUser(d.user);
+        }
+      }
     };
-    const handlePinSubmit = () => {
+    const handlePinSubmit = async () => {
       const pin = enteredPin.join('');
       if (pin.length !== 4) { setPinError('4 digits'); return; }
-      fetch(`${API_BASE}/verify-pin`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ userId: pinForProfile.id, pin }) })
-        .then(r => r.json()).then(d => { if (d.success) { setShowPinModal(false); setCurrentUser(pinForProfile); } else setPinError('Wrong PIN'); });
+      const res = await apiFetch('/login', { method: 'POST', body: JSON.stringify({ username: pinForProfile.username, pin }) });
+      const d = await res.json();
+      if (d.token) { 
+        localStorage.setItem('localify_token', d.token);
+        setShowPinModal(false); 
+        setCurrentUser(d.user); 
+      } else setPinError(d.error || 'Wrong PIN');
     };
     return (
       <div className="h-screen bg-gradient-to-b from-[#1a1625] to-[#0d0d12] flex flex-col overflow-hidden">
@@ -273,7 +325,17 @@ function App() {
               </div>
             )
           ) : (
-            <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target); fetch(`${API_BASE}/register`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ username: fd.get('username') }) }).then(r => r.json()).then(r => { if (r.id) { setCurrentUser(r); setShowRegister(false); } }); }} className="space-y-4 w-80">
+            <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target); apiFetch('/register', { method: 'POST', body: JSON.stringify({ username: fd.get('username') }) }).then(r => r.json()).then(r => { 
+              if (r.id) { 
+                apiFetch('/login', { method: 'POST', body: JSON.stringify({ username: r.username, pin: '' }) }).then(lr => lr.json()).then(lr => {
+                  if (lr.token) {
+                    localStorage.setItem('localify_token', lr.token);
+                    setCurrentUser(lr.user);
+                    setShowRegister(false);
+                  }
+                });
+              } 
+            }); }} className="space-y-4 w-80">
               <h2 className="text-2xl font-bold text-white">Create account</h2>
               <input name="username" placeholder="Username" required maxLength={20} className="w-full bg-white/10 border border-white/10 p-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
               <button type="submit" className="w-full bg-brand-primary text-black font-bold py-3 rounded-full">Create</button>
@@ -322,7 +384,7 @@ function App() {
       return (
         <div className="pb-8">
           <div className="flex items-end gap-6 p-6 bg-gradient-to-b from-white/20 to-transparent">
-            <div className="w-52 h-52 bg-gray-800 rounded-lg overflow-hidden">{album.cover ? <img src={`${API_BASE}/cover/${encodeURIComponent(album.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-20 h-20 text-gray-600 m-auto" />}</div>
+            <div className="w-52 h-52 bg-gray-800 rounded-lg overflow-hidden">{album.cover ? <img src={`getCoverUrl${encodeURIComponent(album.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-20 h-20 text-gray-600 m-auto" />}</div>
             <div><p className="text-white text-sm uppercase">Album</p><h1 className="text-4xl font-black text-white">{album.name}</h1><p className="text-white">{album.artist}</p></div>
           </div>
           <div className="flex items-center gap-4 p-6"><button onClick={() => albumTracks[0] && playTrack(albumTracks[0], albumTracks)} className="w-14 h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-7 h-7 text-black ml-1" /></button></div>
@@ -337,13 +399,13 @@ function App() {
       return (
         <div className="pb-8">
           <div className="flex items-end gap-6 p-6 bg-gradient-to-b from-white/20 to-transparent">
-            <div className="w-52 h-52 bg-gray-800 rounded-full overflow-hidden">{artist.cover ? <img src={`${API_BASE}/cover/${encodeURIComponent(artist.cover.fileName)}`} className="w-full h-full object-cover" /> : <User className="w-24 h-24 text-gray-600 m-auto" />}</div>
+            <div className="w-52 h-52 bg-gray-800 rounded-full overflow-hidden">{artist.cover ? <img src={`getCoverUrl${encodeURIComponent(artist.cover.fileName)}`} className="w-full h-full object-cover" /> : <User className="w-24 h-24 text-gray-600 m-auto" />}</div>
             <div><p className="text-white text-sm uppercase">Artist</p><h1 className="text-4xl font-black text-white">{artist.name}</h1></div>
           </div>
           <div className="flex items-center gap-4 p-6"><button onClick={() => aTracks[0] && playTrack(aTracks[0], aTracks)} className="w-14 h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-7 h-7 text-black ml-1" /></button></div>
           <div className="px-6"><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2>{aTracks.slice(0,10).map((t, i) => <div key={t.id} onClick={() => playTrack(t, aTracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}
           <h2 className="text-xl font-bold text-white mt-8 mb-4">{t('albums')}</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{aAlbums.map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={`${API_BASE}/cover/${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p></div>)}</div></div></div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{aAlbums.map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p></div>)}</div></div></div>
       );
     }
 
@@ -367,17 +429,17 @@ function App() {
         {view === 'home' && (
           <>
             <h1 className="text-3xl font-bold text-white mb-6 px-6">{t('goodEvening')}</h1>
-            {recentlyPlayed.length > 0 && <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">Recently played</h2><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">{recentlyPlayed.slice(0,6).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-3 p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer"><div className="w-12 h-12 bg-gray-800 rounded">{t.hasPicture ? <img src={`${API_BASE}/cover/${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-6 h-6 text-gray-600 m-auto" />}</div><p className="text-white truncate flex-1">{t.title}</p></div>)}</div></div>}
-            <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.slice(0, 20).map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={`${API_BASE}/cover/${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></div>
-            <div className="px-6"><h2 className="text-xl font-bold text-white mb-4">{t('albums')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueAlbums().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={`${API_BASE}/cover/${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate font-medium">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div></div>
-            <div className="px-6 mt-8"><h2 className="text-xl font-bold text-white mb-4">{t('artists')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueArtists().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={`${API_BASE}/cover/${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div></div>
+            {recentlyPlayed.length > 0 && <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">Recently played</h2><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">{recentlyPlayed.slice(0,6).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-3 p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer"><div className="w-12 h-12 bg-gray-800 rounded">{t.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-6 h-6 text-gray-600 m-auto" />}</div><p className="text-white truncate flex-1">{t.title}</p></div>)}</div></div>}
+            <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.slice(0, 20).map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></div>
+            <div className="px-6"><h2 className="text-xl font-bold text-white mb-4">{t('albums')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueAlbums().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate font-medium">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div></div>
+            <div className="px-6 mt-8"><h2 className="text-xl font-bold text-white mb-4">{t('artists')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueArtists().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div></div>
           </>
         )}
 
         {view === 'search' && (
           <div className="px-6 pb-8">
             <h1 className="text-3xl font-bold text-white mb-6">{t('search')}</h1>
-            {searchQuery && <><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={`${API_BASE}/cover/${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className="text-white truncate">{t.title}</p><p className="text-gray-400 text-sm">{t.artist}</p></div></div>)}</div></>}
+            {searchQuery && <><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className="text-white truncate">{t.title}</p><p className="text-gray-400 text-sm">{t.artist}</p></div></div>)}</div></>}
           </div>
         )}
 
@@ -390,10 +452,10 @@ function App() {
               <button onClick={() => setView('library-albums')} className={clsx("px-4 py-2 rounded-full text-sm font-medium", view === 'library-albums' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('albums')}</button>
               <button onClick={() => setView('library-artists')} className={clsx("px-4 py-2 rounded-full text-sm font-medium", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
             </div>
-            {view === 'library' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{playlists.map(p => <div key={p.id} onClick={() => { setActivePlaylist(p); fetch(`${API_BASE}/playlists/${p.id}/tracks`).then(r => r.json()).then(d => { setPlaylistTracks(d); setCurrentPlayList(d); }); setView('playlist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3"><ListMusic className="w-12 h-12 text-gray-600 m-auto" /></div><p className="text-white truncate">{p.name}</p></div>)}</div>}
-            {view === 'library-songs' && <><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={`${API_BASE}/cover/${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></>}
-            {view === 'library-albums' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueAlbums().map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={`${API_BASE}/cover/${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div>}
-            {view === 'library-artists' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueArtists().map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={`${API_BASE}/cover/${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div>}
+            {view === 'library' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{playlists.map(p => <div key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3"><ListMusic className="w-12 h-12 text-gray-600 m-auto" /></div><p className="text-white truncate">{p.name}</p></div>)}</div>}
+            {view === 'library-songs' && <><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></>}
+            {view === 'library-albums' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueAlbums().map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div>}
+            {view === 'library-artists' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueArtists().map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div>}
           </div>
         )}
       </div>
@@ -414,7 +476,7 @@ function App() {
             </nav>
             <div className="mt-8">
               <div className="flex items-center justify-between px-4 mb-3"><span className="text-gray-400 text-sm font-medium uppercase">{t('playlists')}</span><button onClick={() => setShowPlaylistModal(true)} className="text-gray-400 hover:text-white"><Plus className="w-5 h-5" /></button></div>
-              <div className="space-y-1 max-h-64 overflow-y-auto">{playlists.map(p => <button key={p.id} onClick={() => { setActivePlaylist(p); fetch(`${API_BASE}/playlists/${p.id}/tracks`).then(r => r.json()).then(d => { setPlaylistTracks(d); setCurrentPlayList(d); }); setView('playlist'); }} className="w-full text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 text-sm truncate">{p.name}</button>)}</div>
+              <div className="space-y-1 max-h-64 overflow-y-auto">{playlists.map(p => <button key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className="w-full text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 text-sm truncate">{p.name}</button>)}</div>
             </div>
           </div>
         </aside>
@@ -437,7 +499,7 @@ function App() {
 
       <div className="h-24 bg-black border-t border-white/10 px-6 flex items-center justify-between fixed bottom-0 left-0 right-0 z-50">
         <div className="flex items-center gap-4 w-1/4">
-          {currentTrack && (<><div className="w-14 h-14 bg-gray-800 rounded flex-shrink-0 overflow-hidden">{currentTrack.hasPicture ? <img src={`${API_BASE}/cover/${encodeURIComponent(currentTrack.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-7 h-7 text-gray-600 m-auto" />}</div><div className="min-w-0"><p className="text-white font-medium truncate">{currentTrack.title}</p><p className="text-gray-400 text-sm truncate">{currentTrack.artist}</p></div><button onClick={() => toggleFavorite(currentTrack)} className="text-gray-400 hover:text-white"><Heart className={clsx("w-5 h-5", favoritesPlaylist && playlistTracks.some(t => t.id === currentTrack?.id) ? 'fill-red-500 text-red-500' : '')} /></button></>)}
+          {currentTrack && (<><div className="w-14 h-14 bg-gray-800 rounded flex-shrink-0 overflow-hidden">{currentTrack.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(currentTrack.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-7 h-7 text-gray-600 m-auto" />}</div><div className="min-w-0"><p className="text-white font-medium truncate">{currentTrack.title}</p><p className="text-gray-400 text-sm truncate">{currentTrack.artist}</p></div><button onClick={() => toggleFavorite(currentTrack)} className="text-gray-400 hover:text-white"><Heart className={clsx("w-5 h-5", favoritesPlaylist && playlistTracks.some(t => t.id === currentTrack?.id) ? 'fill-red-500 text-red-500' : '')} /></button></>)}
         </div>
         <div className="flex flex-col items-center w-1/2">
           <div className="flex items-center gap-4 mb-2">
@@ -464,7 +526,7 @@ function App() {
             <div className="relative"><div className="w-20 h-20 rounded-full overflow-hidden bg-gray-800">{userAvatar ? <img src={userAvatar} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-brand-primary flex items-center justify-center text-3xl text-black font-bold">{currentUser.username[0].toUpperCase()}</div>}</div><button onClick={() => avatarInputRef.current.click()} className="absolute bottom-0 right-0 bg-brand-primary p-2 rounded-full"><Camera className="w-4 h-4 text-black" /></button><input type="file" ref={avatarInputRef} onChange={handleAvatarUpload} accept="image/*" className="hidden" /></div>
             <div><p className="text-white font-bold text-xl">{currentUser.username}</p><p className="text-gray-400">ID: {currentUser.id}</p></div>
           </div>
-          <button onClick={() => { setCurrentUser(null); localStorage.removeItem('localify_user'); }} className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20"><LogOut className="w-5 h-5" />Sign out</button>
+          <button onClick={() => { apiFetch('/logout', { method: 'POST' }); setCurrentUser(null); localStorage.removeItem('localify_user'); localStorage.removeItem('localify_token'); }} className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20"><LogOut className="w-5 h-5" />Sign out</button>
         </div>
       </Modal>
 
