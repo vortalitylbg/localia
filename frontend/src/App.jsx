@@ -188,6 +188,40 @@ function App() {
 
   useEffect(() => { audioRef.current.volume = volume; }, [volume]);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    audioRef.current.pause();
+    setIsPlaying(false);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || tracks.length === 0) return;
+    const saved = localStorage.getItem(`localify_playback_state_${currentUser.id}`);
+    if (!saved) return;
+    try {
+      const state = JSON.parse(saved);
+      const track = tracks.find(t => t.id === state.trackId);
+      if (track) {
+        setCurrentTrack(track);
+        audioRef.current.src = getStreamUrl(track.fileName);
+        audioRef.current.currentTime = state.currentTime || 0;
+        audioRef.current.volume = state.volume ?? 0.7;
+        setVolume(state.volume ?? 0.7);
+        setCurrentPlayList(tracks);
+      }
+    } catch {}
+  }, [currentUser, tracks]);
+
+  useEffect(() => {
+    if (currentTrack && currentUser) {
+      localStorage.setItem(`localify_playback_state_${currentUser.id}`, JSON.stringify({
+        trackId: currentTrack.id,
+        currentTime: audioRef.current.currentTime,
+        volume: volume
+      }));
+    }
+  }, [currentTrack, currentTime, volume, currentUser]);
+
   const playTrack = (track, list = null) => {
     const playlist = list || currentPlayList || tracks;
     setCurrentPlayList(playlist);
@@ -683,7 +717,7 @@ function App() {
             <div className="relative"><div className="w-20 h-20 rounded-full overflow-hidden bg-gray-800">{userAvatar ? <img src={userAvatar} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-brand-primary flex items-center justify-center text-3xl text-black font-bold">{currentUser.username[0].toUpperCase()}</div>}</div><button onClick={() => avatarInputRef.current.click()} className="absolute bottom-0 right-0 bg-brand-primary p-2 rounded-full"><Camera className="w-4 h-4 text-black" /></button><input type="file" ref={avatarInputRef} onChange={handleAvatarUpload} accept="image/*" className="hidden" /></div>
             <div><p className="text-white font-bold text-xl">{currentUser.username}</p><p className="text-gray-400">ID: {currentUser.id}</p></div>
           </div>
-          <button onClick={() => { apiFetch('/logout', { method: 'POST' }); setCurrentUser(null); localStorage.removeItem('localify_user'); localStorage.removeItem('localify_token'); }} className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20"><LogOut className="w-5 h-5" />Sign out</button>
+          <button onClick={() => { const userId = currentUser?.id; apiFetch('/logout', { method: 'POST' }); setCurrentUser(null); localStorage.removeItem('localify_user'); localStorage.removeItem('localify_token'); if (userId) localStorage.removeItem(`localify_playback_state_${userId}`); }} className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20"><LogOut className="w-5 h-5" />Sign out</button>
         </div>
       </Modal>
 
