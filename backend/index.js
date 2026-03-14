@@ -520,7 +520,7 @@ app.get('/api/cover/:fileName', optionalAuth, async (req, res) => {
     }
 });
 
-app.post('/api/upload', authenticate, requireAdmin, upload.single('file'), async (req, res) => {
+app.post('/api/upload', authenticate, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     
     const fileName = req.file.filename;

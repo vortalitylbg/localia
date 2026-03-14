@@ -86,6 +86,12 @@ function App() {
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const uploadInputRef = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState(null);
+  const [showUploadMessage, setShowUploadMessage] = useState(false);
   const [showEqualizer, setShowEqualizer] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -192,7 +198,7 @@ function App() {
     }
     setCurrentTrack(track);
     setIsPlaying(true);
-    audioRef.current.src = `getStreamUrl${encodeURIComponent(track.fileName)}`;
+    audioRef.current.src = getStreamUrl(track.fileName);
     audioRef.current.play().catch(() => {});
     setRecentlyPlayed(prev => [track, ...prev.filter(t => t.id !== track.id)].slice(0, 20));
   };
@@ -243,6 +249,62 @@ function App() {
     const reader = new FileReader();
     reader.onload = (ev) => { setUserAvatar(ev.target.result); localStorage.setItem('localify_avatar', ev.target.result); };
     reader.readAsDataURL(file);
+  };
+
+  const handleFileUpload = async (files) => {
+    if (!files || files.length === 0) return;
+    setIsUploading(true);
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('file', file);
+    }
+    try {
+      const token = localStorage.getItem('localify_token');
+      const res = await fetch(`${API_BASE}/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      const data = await res.json();
+      
+      if (res.status === 409) {
+        setUploadMessage({ type: 'error', text: `"${data.fileName}" is already in your music library` });
+        setShowUploadMessage(true);
+      } else if (res.ok) {
+        const newTracks = await apiFetch('/tracks').then(r => r?.json());
+        if (newTracks) setTracks(newTracks);
+        setUploadMessage({ type: 'success', text: `"${data.title}" has been added to your library` });
+        setShowUploadMessage(true);
+        setShowUploadModal(false);
+      } else if (res.status === 401) {
+        setUploadMessage({ type: 'error', text: 'You must be logged in to upload music' });
+        setShowUploadMessage(true);
+      } else {
+        setUploadMessage({ type: 'error', text: data.error || 'Upload failed' });
+        setShowUploadMessage(true);
+      }
+    } catch (err) {
+      console.error('Upload failed:', err);
+      setUploadMessage({ type: 'error', text: 'Upload failed' });
+      setShowUploadMessage(true);
+    }
+    setIsUploading(false);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    handleFileUpload(e.dataTransfer.files);
   };
 
   const getUniqueAlbums = () => {
@@ -315,13 +377,37 @@ function App() {
                 <p className="text-gray-400 text-sm uppercase tracking-widest mb-8">Who's listening?</p>
                 <div className="flex items-center justify-center gap-6 mb-8">
                   {users.map((u, i) => (
-                    <button key={u.id} onClick={() => handleSelect(u)} className={clsx("flex flex-col items-center gap-4 transition-all", i === selectedProfileIndex ? 'scale-100' : 'scale-75 opacity-50')}>
-                      <div className={clsx("w-32 h-32 rounded-full flex items-center justify-center text-4xl font-bold", i === selectedProfileIndex ? 'bg-brand-primary text-black' : 'bg-white/10 text-white')}>{u.username[0].toUpperCase()}</div>
-                      <span className={clsx("font-semibold", i === selectedProfileIndex ? 'text-white text-xl' : 'text-gray-500')}>{u.username}</span>
+                    <button 
+                      key={u.id} 
+                      onClick={() => setSelectedProfileIndex(i)}
+                      className={clsx(
+                        "flex flex-col items-center gap-3 transition-all duration-300",
+                        i === selectedProfileIndex ? 'scale-100' : 'scale-75 opacity-40 hover:opacity-60'
+                      )}
+                    >
+                      <div className={clsx(
+                        "w-28 h-28 rounded-full flex items-center justify-center text-3xl font-bold transition-all",
+                        i === selectedProfileIndex 
+                          ? 'bg-brand-primary text-black ring-4 ring-brand-primary/30' 
+                          : 'bg-white/10 text-white'
+                      )}>
+                        {u.username[0].toUpperCase()}
+                      </div>
+                      <span className={clsx(
+                        "font-medium transition-all",
+                        i === selectedProfileIndex ? 'text-white text-base' : 'text-gray-500 text-sm'
+                      )}>
+                        {u.username}
+                      </span>
                     </button>
                   ))}
                 </div>
-                <button onClick={() => users[selectedProfileIndex] && handleSelect(users[selectedProfileIndex])} className="bg-brand-primary hover:bg-[#1ed760] text-black font-bold py-3 px-12 rounded-full">{t('play')}</button>
+                <button 
+                  onClick={() => users[selectedProfileIndex] && handleSelect(users[selectedProfileIndex])} 
+                  className="bg-brand-primary hover:bg-[#1ed760] text-black font-bold py-3 px-12 rounded-full transition-transform hover:scale-105"
+                >
+                  {t('play')}
+                </button>
               </div>
             )
           ) : (
@@ -384,7 +470,7 @@ function App() {
       return (
         <div className="pb-8">
           <div className="flex items-end gap-6 p-6 bg-gradient-to-b from-white/20 to-transparent">
-            <div className="w-52 h-52 bg-gray-800 rounded-lg overflow-hidden">{album.cover ? <img src={`getCoverUrl${encodeURIComponent(album.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-20 h-20 text-gray-600 m-auto" />}</div>
+            <div className="w-52 h-52 bg-gray-800 rounded-lg overflow-hidden">{album.cover ? <img src={getCoverUrl(album.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-20 h-20 text-gray-600 m-auto" />}</div>
             <div><p className="text-white text-sm uppercase">Album</p><h1 className="text-4xl font-black text-white">{album.name}</h1><p className="text-white">{album.artist}</p></div>
           </div>
           <div className="flex items-center gap-4 p-6"><button onClick={() => albumTracks[0] && playTrack(albumTracks[0], albumTracks)} className="w-14 h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-7 h-7 text-black ml-1" /></button></div>
@@ -399,13 +485,13 @@ function App() {
       return (
         <div className="pb-8">
           <div className="flex items-end gap-6 p-6 bg-gradient-to-b from-white/20 to-transparent">
-            <div className="w-52 h-52 bg-gray-800 rounded-full overflow-hidden">{artist.cover ? <img src={`getCoverUrl${encodeURIComponent(artist.cover.fileName)}`} className="w-full h-full object-cover" /> : <User className="w-24 h-24 text-gray-600 m-auto" />}</div>
+            <div className="w-52 h-52 bg-gray-800 rounded-full overflow-hidden">{artist.cover ? <img src={getCoverUrl(artist.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-24 h-24 text-gray-600 m-auto" />}</div>
             <div><p className="text-white text-sm uppercase">Artist</p><h1 className="text-4xl font-black text-white">{artist.name}</h1></div>
           </div>
           <div className="flex items-center gap-4 p-6"><button onClick={() => aTracks[0] && playTrack(aTracks[0], aTracks)} className="w-14 h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-7 h-7 text-black ml-1" /></button></div>
           <div className="px-6"><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2>{aTracks.slice(0,10).map((t, i) => <div key={t.id} onClick={() => playTrack(t, aTracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}
           <h2 className="text-xl font-bold text-white mt-8 mb-4">{t('albums')}</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{aAlbums.map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p></div>)}</div></div></div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{aAlbums.map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p></div>)}</div></div></div>
       );
     }
 
@@ -429,17 +515,17 @@ function App() {
         {view === 'home' && (
           <>
             <h1 className="text-3xl font-bold text-white mb-6 px-6">{t('goodEvening')}</h1>
-            {recentlyPlayed.length > 0 && <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">Recently played</h2><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">{recentlyPlayed.slice(0,6).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-3 p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer"><div className="w-12 h-12 bg-gray-800 rounded">{t.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-6 h-6 text-gray-600 m-auto" />}</div><p className="text-white truncate flex-1">{t.title}</p></div>)}</div></div>}
-            <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.slice(0, 20).map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></div>
-            <div className="px-6"><h2 className="text-xl font-bold text-white mb-4">{t('albums')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueAlbums().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate font-medium">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div></div>
-            <div className="px-6 mt-8"><h2 className="text-xl font-bold text-white mb-4">{t('artists')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueArtists().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div></div>
+            {recentlyPlayed.length > 0 && <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">Recently played</h2><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">{recentlyPlayed.slice(0,6).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-3 p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer"><div className="w-12 h-12 bg-gray-800 rounded">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-6 h-6 text-gray-600 m-auto" />}</div><p className="text-white truncate flex-1">{t.title}</p></div>)}</div></div>}
+            <div className="mb-8 px-6"><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.slice(0, 20).map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></div>
+            <div className="px-6"><h2 className="text-xl font-bold text-white mb-4">{t('albums')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueAlbums().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate font-medium">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div></div>
+            <div className="px-6 mt-8"><h2 className="text-xl font-bold text-white mb-4">{t('artists')}</h2><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{getUniqueArtists().slice(0, 12).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div></div>
           </>
         )}
 
         {view === 'search' && (
           <div className="px-6 pb-8">
             <h1 className="text-3xl font-bold text-white mb-6">{t('search')}</h1>
-            {searchQuery && <><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className="text-white truncate">{t.title}</p><p className="text-gray-400 text-sm">{t.artist}</p></div></div>)}</div></>}
+            {searchQuery && <><h2 className="text-xl font-bold text-white mb-4">{t('songs')}</h2><div className="space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className="text-white truncate">{t.title}</p><p className="text-gray-400 text-sm">{t.artist}</p></div></div>)}</div></>}
           </div>
         )}
 
@@ -453,9 +539,9 @@ function App() {
               <button onClick={() => setView('library-artists')} className={clsx("px-4 py-2 rounded-full text-sm font-medium", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
             </div>
             {view === 'library' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{playlists.map(p => <div key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3"><ListMusic className="w-12 h-12 text-gray-600 m-auto" /></div><p className="text-white truncate">{p.name}</p></div>)}</div>}
-            {view === 'library-songs' && <><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(t.fileName)}`} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></>}
-            {view === 'library-albums' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueAlbums().map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div>}
-            {view === 'library-artists' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueArtists().map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={`getCoverUrl${encodeURIComponent(a.cover.fileName)}`} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div>}
+            {view === 'library-songs' && <><div className="flex items-center gap-4 mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-6 h-6 text-black ml-1" /></button></div><div className="space-y-1">{tracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-4 py-2 px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-8 text-center text-gray-500">{i+1}</span><div className="w-10 h-10 bg-gray-800 rounded">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div><div className="flex-1"><p className={clsx("truncate", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-sm truncate">{t.artist}</p></div><span className="text-gray-500 text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></>}
+            {view === 'library-albums' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueAlbums().map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate">{a.name}</p><p className="text-gray-400 text-sm truncate">{a.artist}</p></div>)}</div>}
+            {view === 'library-artists' && <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">{getUniqueArtists().map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-3 mx-auto w-32 h-32">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-gray-600 m-auto" />}</div><p className="text-white truncate text-center">{a.name}</p></div>)}</div>}
           </div>
         )}
       </div>
@@ -488,6 +574,7 @@ function App() {
               <div className="relative w-80"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); if (view !== 'search') setView('search'); }} placeholder={t('searchPlaceholder')} className="w-full bg-white/10 border border-transparent rounded-full py-2 pl-10 pr-4 text-white placeholder-gray-400 focus:outline-none focus:bg-white/20" /></div>
             </div>
             <div className="flex items-center gap-3">
+              <button onClick={() => setShowUploadModal(true)} className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10" title="Upload Music"><Upload className="w-5 h-5" /></button>
               <button onClick={() => setShowEqualizer(true)} className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10"><Sliders className="w-6 h-6" /></button>
               <button onClick={() => setView('settings')} className={clsx("p-2 rounded-full", view === 'settings' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10')}><Settings className="w-6 h-6" /></button>
               <button onClick={() => setShowAccountModal(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20">{userAvatar ? <img src={userAvatar} className="w-7 h-7 rounded-full object-cover" /> : <div className="w-7 h-7 bg-brand-primary rounded-full flex items-center justify-center text-black font-bold text-sm">{currentUser.username[0].toUpperCase()}</div>}<span className="text-white font-medium text-sm">{currentUser.username}</span></button>
@@ -497,21 +584,77 @@ function App() {
         </main>
       </div>
 
-      <div className="h-24 bg-black border-t border-white/10 px-6 flex items-center justify-between fixed bottom-0 left-0 right-0 z-50">
+      <div className="h-24 bg-gradient-to-r from-[#181818] via-[#1a1a1a] to-[#181818] border-t border-white/10 px-6 flex items-center justify-between fixed bottom-0 left-0 right-0 z-50 backdrop-blur-md">
         <div className="flex items-center gap-4 w-1/4">
-          {currentTrack && (<><div className="w-14 h-14 bg-gray-800 rounded flex-shrink-0 overflow-hidden">{currentTrack.hasPicture ? <img src={`getCoverUrl${encodeURIComponent(currentTrack.fileName)}`} className="w-full h-full object-cover" /> : <Disc className="w-7 h-7 text-gray-600 m-auto" />}</div><div className="min-w-0"><p className="text-white font-medium truncate">{currentTrack.title}</p><p className="text-gray-400 text-sm truncate">{currentTrack.artist}</p></div><button onClick={() => toggleFavorite(currentTrack)} className="text-gray-400 hover:text-white"><Heart className={clsx("w-5 h-5", favoritesPlaylist && playlistTracks.some(t => t.id === currentTrack?.id) ? 'fill-red-500 text-red-500' : '')} /></button></>)}
+          {currentTrack && (
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 bg-gray-800 rounded-lg flex-shrink-0 overflow-hidden shadow-lg">
+                {currentTrack.hasPicture ? (
+                  <img src={getCoverUrl(currentTrack.fileName)} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
+                    <Disc className="w-7 h-7 text-gray-500" />
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-white font-medium truncate text-sm">{currentTrack.title}</p>
+                <p className="text-gray-400 text-xs truncate">{currentTrack.artist}</p>
+              </div>
+              <button onClick={() => toggleFavorite(currentTrack)} className="text-gray-400 hover:text-white transition-colors">
+                <Heart className={clsx("w-5 h-5", favoritesPlaylist && playlistTracks.some(t => t.id === currentTrack?.id) ? 'fill-red-500 text-red-500' : '')} />
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex flex-col items-center w-1/2">
           <div className="flex items-center gap-4 mb-2">
-            <button onClick={() => setIsShuffle(!isShuffle)} className={clsx("transition-colors", isShuffle ? 'text-brand-primary' : 'text-gray-400 hover:text-white')}><Shuffle className="w-5 h-5" /></button>
-            <button onClick={handlePrev} className="text-gray-400 hover:text-white"><SkipBack className="w-6 h-6" /></button>
-            <button onClick={() => { if (currentTrack) { if (isPlaying) audioRef.current.pause(); else audioRef.current.play(); setIsPlaying(!isPlaying); } }} className="w-10 h-10 bg-white rounded-full flex items-center justify-center hover:scale-105">{isPlaying ? <Pause className="w-5 h-5 text-black" /> : <Play className="w-5 h-5 text-black ml-0.5" />}</button>
-            <button onClick={handleNext} className="text-gray-400 hover:text-white"><SkipForward className="w-6 h-6" /></button>
-            <button onClick={() => setRepeatMode(repeatMode === 'off' ? 'all' : 'off')} className={clsx("transition-colors", repeatMode !== 'off' ? 'text-brand-primary' : 'text-gray-400 hover:text-white')}><Repeat className="w-5 h-5" /></button>
+            <button onClick={() => setIsShuffle(!isShuffle)} className={clsx("transition-colors", isShuffle ? 'text-brand-primary' : 'text-gray-400 hover:text-white')}><Shuffle className="w-4 h-4" /></button>
+            <button onClick={handlePrev} className="text-gray-400 hover:text-white transition-colors"><SkipBack className="w-5 h-5" /></button>
+            <button onClick={() => { if (currentTrack) { if (isPlaying) audioRef.current.pause(); else audioRef.current.play(); setIsPlaying(!isPlaying); } }} className="w-10 h-10 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg">{isPlaying ? <Pause className="w-5 h-5 text-black" /> : <Play className="w-5 h-5 text-black ml-0.5" />}</button>
+            <button onClick={handleNext} className="text-gray-400 hover:text-white transition-colors"><SkipForward className="w-5 h-5" /></button>
+            <button onClick={() => setRepeatMode(repeatMode === 'off' ? 'all' : 'off')} className={clsx("transition-colors", repeatMode !== 'off' ? 'text-brand-primary' : 'text-gray-400 hover:text-white')}><Repeat className="w-4 h-4" /></button>
           </div>
-          <div className="w-full flex items-center gap-2"><span className="text-gray-400 text-xs w-10 text-right">{Math.floor(currentTime/60)}:{String(Math.floor(currentTime%60)).padStart(2,'0')}</span><input type="range" min="0" max={duration||100} step="0.1" value={currentTime} onChange={(e) => { audioRef.current.currentTime = e.target.value; }} className="flex-1 h-1 bg-gray-600 rounded-full" /><span className="text-gray-400 text-xs w-10">{Math.floor(duration/60)}:{String(Math.floor(duration%60)).padStart(2,'0')}</span></div>
+          <div className="w-full flex items-center gap-3">
+            <span className="text-gray-400 text-xs w-10 text-right tabular-nums">{Math.floor(currentTime/60)}:{String(Math.floor(currentTime%60)).padStart(2,'0')}</span>
+            <div className="flex-1 relative h-1.5 bg-white/10 rounded-full group">
+              <div 
+                className="absolute h-full bg-brand-primary rounded-full transition-all"
+                style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+              />
+              <input 
+                type="range" 
+                min="0" 
+                max={duration||100} 
+                step="0.1" 
+                value={currentTime} 
+                onChange={(e) => { audioRef.current.currentTime = e.target.value; }} 
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+            </div>
+            <span className="text-gray-400 text-xs w-10 tabular-nums">{Math.floor(duration/60)}:{String(Math.floor(duration%60)).padStart(2,'0')}</span>
+          </div>
         </div>
-        <div className="flex items-center justify-end gap-3 w-1/4"><button onClick={() => setShowUploadModal(true)} className="text-gray-400 hover:text-white"><Upload className="w-5 h-5" /></button><Volume2 className="w-5 h-5 text-gray-400" /><input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => { audioRef.current.volume = e.target.value; setVolume(e.target.value); }} className="w-24 h-1 bg-gray-600 rounded-full" /></div>
+        <div className="flex items-center justify-end gap-4 w-1/4">
+          <div className="flex items-center gap-2 group">
+            <Volume2 className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
+            <div className="w-20 relative h-1.5 bg-white/10 rounded-full">
+              <div 
+                className="absolute h-full bg-white rounded-full transition-all"
+                style={{ width: `${volume * 100}%` }}
+              />
+              <input 
+                type="range" 
+                min="0" 
+                max="1" 
+                step="0.01" 
+                value={volume} 
+                onChange={(e) => { audioRef.current.volume = e.target.value; setVolume(e.target.value); }} 
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       <Modal isOpen={showPlaylistModal} onClose={() => setShowPlaylistModal(false)} title={t('createPlaylist')}>
@@ -531,7 +674,53 @@ function App() {
       </Modal>
 
       <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} title="Upload Music" size="lg">
-        <div className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center"><Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" /><p className="text-white mb-2">Drop audio files here</p><p className="text-gray-400 text-sm">Supports MP3, FLAC, WAV, OGG</p></div>
+        <div 
+          className={clsx(
+            "border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all",
+            isDragging 
+              ? "border-brand-primary bg-brand-primary/10" 
+              : "border-gray-600 hover:border-gray-500 hover:bg-white/5"
+          )}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => uploadInputRef.current?.click()}
+        >
+          <input 
+            ref={uploadInputRef}
+            type="file" 
+            accept=".mp3,.flac,.wav,.ogg,.m4a" 
+            multiple 
+            className="hidden"
+            onChange={(e) => handleFileUpload(e.target.files)}
+          />
+          {isUploading ? (
+            <div className="py-8">
+              <div className="w-12 h-12 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-white">Uploading...</p>
+            </div>
+          ) : (
+            <>
+              <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-white mb-2 font-medium">Drop audio files here or click to browse</p>
+              <p className="text-gray-400 text-sm">Supports MP3, FLAC, WAV, OGG, M4A</p>
+            </>
+          )}
+        </div>
+      </Modal>
+
+      <Modal isOpen={showUploadMessage} onClose={() => setShowUploadMessage(false)} title={uploadMessage?.type === 'success' ? 'Success' : 'Error'}>
+        <div className="text-center py-4">
+          <div className={clsx("w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4", uploadMessage?.type === 'success' ? 'bg-green-500/20' : 'bg-red-500/20')}>
+            {uploadMessage?.type === 'success' ? (
+              <svg className="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+            ) : (
+              <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            )}
+          </div>
+          <p className={clsx("font-medium", uploadMessage?.type === 'success' ? 'text-green-400' : 'text-red-400')}>{uploadMessage?.text}</p>
+          <button onClick={() => setShowUploadMessage(false)} className="mt-6 px-6 py-2 bg-brand-primary text-black font-semibold rounded-full">OK</button>
+        </div>
       </Modal>
 
       <Modal isOpen={showEqualizer} onClose={() => setShowEqualizer(false)} title={t('equalizer')}>
