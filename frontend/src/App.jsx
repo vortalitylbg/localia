@@ -222,6 +222,58 @@ function App() {
     }
   }, [currentTrack, currentTime, volume, currentUser]);
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      
+      switch (e.code) {
+        case 'Space':
+          e.preventDefault();
+          if (currentTrack) {
+            if (isPlaying) audioRef.current.pause();
+            else audioRef.current.play().catch(() => {});
+            setIsPlaying(!isPlaying);
+          }
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 5);
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 5);
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setVolume(v => Math.min(1, parseFloat(v) + 0.1));
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          setVolume(v => Math.max(0, parseFloat(v) - 0.1));
+          break;
+        case 'KeyN': {
+          const list = currentPlayList.length > 0 ? currentPlayList : tracks;
+          if (list.length === 0) return;
+          let nextIndex = isShuffle ? Math.floor(Math.random() * list.length) : list.findIndex(t => t.id === currentTrack?.id) + 1;
+          if (nextIndex >= list.length) nextIndex = repeatMode === 'off' ? -1 : 0;
+          if (nextIndex >= 0) playTrack(list[nextIndex], list);
+          else setIsPlaying(false);
+          break;
+        }
+        case 'KeyP': {
+          const list = currentPlayList.length > 0 ? currentPlayList : tracks;
+          if (list.length === 0) return;
+          if (audioRef.current.currentTime > 3) { audioRef.current.currentTime = 0; return; }
+          const idx = list.findIndex(t => t.id === currentTrack?.id);
+          playTrack(list[idx > 0 ? idx - 1 : list.length - 1], list);
+          break;
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentTrack, isPlaying, duration, currentPlayList, tracks, isShuffle, repeatMode]);
+
   const playTrack = (track, list = null) => {
     const playlist = list || currentPlayList || tracks;
     setCurrentPlayList(playlist);
