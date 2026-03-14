@@ -526,13 +526,18 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req, res) =>
     const fileName = req.file.filename;
     const filePath = path.join(MUSIC_DIR, fileName);
     
-    if (fs.existsSync(filePath)) {
-        return res.status(409).json({ error: 'File already exists', fileName });
+    if (!fs.existsSync(filePath)) {
+        return res.status(400).json({ error: 'File was not saved properly' });
     }
     
     const tracks = await scanMusic();
-    const newTrack = tracks.find(t => t.fileName === fileName);
-    res.json(newTrack || { fileName, title: fileName });
+    const track = tracks.find(t => t.fileName === fileName);
+    
+    if (track) {
+        res.json({ id: track.id, title: track.title, artist: track.artist, album: track.album, hasPicture: track.hasPicture });
+    } else {
+        res.json({ id: Buffer.from(fileName).toString('base64'), title: fileName, artist: 'Unknown Artist', album: 'Unknown Album', hasPicture: false });
+    }
 });
 
 app.listen(PORT, () => {

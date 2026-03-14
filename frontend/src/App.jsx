@@ -92,6 +92,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadMessage, setUploadMessage] = useState(null);
   const [showUploadMessage, setShowUploadMessage] = useState(false);
+  const [uploadData, setUploadData] = useState(null);
   const [showEqualizer, setShowEqualizer] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -267,15 +268,17 @@ function App() {
       });
       const data = await res.json();
       
-      if (res.status === 409) {
-        setUploadMessage({ type: 'error', text: `"${data.fileName}" is already in your music library` });
-        setShowUploadMessage(true);
-      } else if (res.ok) {
+      if (res.ok && data.id) {
         const newTracks = await apiFetch('/tracks').then(r => r?.json());
         if (newTracks) setTracks(newTracks);
+        setUploadData(data);
         setUploadMessage({ type: 'success', text: `"${data.title}" has been added to your library` });
         setShowUploadMessage(true);
         setShowUploadModal(false);
+      } else if (res.ok) {
+        setUploadData(data);
+        setUploadMessage({ type: 'error', text: `"${data.title}" is already in your music library` });
+        setShowUploadMessage(true);
       } else if (res.status === 401) {
         setUploadMessage({ type: 'error', text: 'You must be logged in to upload music' });
         setShowUploadMessage(true);
@@ -709,8 +712,26 @@ function App() {
         </div>
       </Modal>
 
-      <Modal isOpen={showUploadMessage} onClose={() => setShowUploadMessage(false)} title={uploadMessage?.type === 'success' ? 'Success' : 'Error'}>
+      <Modal isOpen={showUploadMessage} onClose={() => { setShowUploadMessage(false); setUploadData(null); }} title={uploadMessage?.type === 'success' ? 'Success' : 'Already exists'}>
         <div className="text-center py-4">
+          {uploadData && (
+            <div className="mb-4">
+              <div className="w-32 h-32 mx-auto rounded-lg overflow-hidden bg-gray-800 shadow-lg mb-3">
+                {uploadData.hasPicture ? (
+                  <img src={getCoverUrl(uploadData.fileName || uploadData.id)} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
+                    <Disc className="w-12 h-12 text-gray-500" />
+                  </div>
+                )}
+              </div>
+              <h3 className="text-white font-bold text-lg">{uploadData.title}</h3>
+              <p className="text-gray-400">{uploadData.artist}</p>
+              {uploadData.album && uploadData.album !== 'Unknown Album' && (
+                <p className="text-gray-500 text-sm">{uploadData.album}</p>
+              )}
+            </div>
+          )}
           <div className={clsx("w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4", uploadMessage?.type === 'success' ? 'bg-green-500/20' : 'bg-red-500/20')}>
             {uploadMessage?.type === 'success' ? (
               <svg className="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
@@ -719,7 +740,7 @@ function App() {
             )}
           </div>
           <p className={clsx("font-medium", uploadMessage?.type === 'success' ? 'text-green-400' : 'text-red-400')}>{uploadMessage?.text}</p>
-          <button onClick={() => setShowUploadMessage(false)} className="mt-6 px-6 py-2 bg-brand-primary text-black font-semibold rounded-full">OK</button>
+          <button onClick={() => { setShowUploadMessage(false); setUploadData(null); }} className="mt-6 px-6 py-2 bg-brand-primary text-black font-semibold rounded-full">OK</button>
         </div>
       </Modal>
 
