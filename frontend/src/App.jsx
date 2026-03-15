@@ -219,11 +219,11 @@ function App() {
 
   const equalizerPresets = {
     flat: { name: 'Flat', values: [0, 0, 0, 0, 0] },
-    bass: { name: 'Bass', values: [6, 4, 2, 0, 0] },
-    treble: { name: 'Treble', values: [0, 0, 2, 4, 6] },
-    vocal: { name: 'Vocal', values: [-2, 0, 4, 2, 0] },
-    rock: { name: 'Rock', values: [5, 3, -1, 2, 4] },
-    electronic: { name: 'Electronic', values: [4, 2, 0, 3, 5] },
+    bass: { name: 'Bass', values: [12, 8, 4, 0, 0] },
+    treble: { name: 'Treble', values: [0, 0, 4, 8, 12] },
+    vocal: { name: 'Vocal', values: [-4, 0, 8, 4, 0] },
+    rock: { name: 'Rock', values: [10, 6, -2, 4, 8] },
+    electronic: { name: 'Electronic', values: [8, 4, 0, 6, 10] },
   };
   const equalizerFrequencies = [60, 230, 910, 3600, 14000];
   const equalizerLabels = ['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz'];
@@ -2204,7 +2204,7 @@ function App() {
       </Modal>
 
       <Modal isOpen={showEqualizer} onClose={() => setShowEqualizer(false)} title={t('equalizer')}>
-        <div className="space-y-4">
+        <div className="space-y-6">
           {!audioContextRef.current && currentTrack && (
             <button 
               onClick={() => initEqualizer()}
@@ -2213,38 +2213,80 @@ function App() {
               Activer l'égaliseur
             </button>
           )}
-          {audioContextRef.current && (
-            <div className="flex flex-wrap gap-2">{Object.entries(equalizerPresets).map(([k, p]) => <button key={k} onClick={() => applyPreset(k)} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm", equalizerPreset === k ? 'bg-brand-primary text-black' : 'bg-white/10 text-white')}>{p.name}</button>)}</div>
-          )}
           
           {audioContextRef.current && (
-          <div className="bg-[#181818] rounded-xl p-4">
-            <div className="flex justify-between gap-2 sm:gap-4">
-              {equalizerValues.map((value, i) => (
-                <div key={i} className="flex flex-col items-center flex-1">
-                  <span className="text-white text-xs font-medium mb-2">{value > 0 ? `+${value}` : value}</span>
-                  <input 
-                    type="range" 
-                    min="-12" 
-                    max="12" 
-                    step="1"
-                    value={value}
-                    onChange={(e) => {
-                      const newValues = [...equalizerValues];
-                      newValues[i] = parseInt(e.target.value);
-                      setEqualizerValues(newValues);
-                      setEqualizerPreset('custom');
-                    }}
-                    className="w-24 h-2 sm:h-3 appearance-none bg-gray-700 rounded-full cursor-pointer accent-brand-primary"
-                  />
-                  <span className="text-gray-400 text-xs mt-2">{equalizerLabels[i]}</span>
-                </div>
-              ))}
+            <div className="flex items-center gap-4">
+              <label className="text-gray-400 text-sm">Préréglage:</label>
+              <select 
+                value={equalizerPreset}
+                onChange={(e) => applyPreset(e.target.value)}
+                className="flex-1 bg-[#181818] text-white px-4 py-2 rounded-lg border border-white/10 focus:outline-none focus:border-brand-primary"
+              >
+                <option value="flat">Flat</option>
+                <option value="bass">Bass</option>
+                <option value="treble">Treble</option>
+                <option value="vocal">Vocal</option>
+                <option value="rock">Rock</option>
+                <option value="electronic">Electronic</option>
+                <option value="custom">Personnaliser</option>
+              </select>
             </div>
-          </div>
           )}
           
-          <div className="flex justify-end"><button onClick={() => setShowEqualizer(false)} className="px-5 sm:px-6 py-1.5 sm:py-2 bg-brand-primary text-black font-semibold rounded-full text-sm sm:text-base">Done</button></div>
+          {audioContextRef.current && (
+            <div className="bg-[#181818] rounded-xl p-6">
+              <div className="flex justify-between items-center h-64 gap-2">
+                {equalizerValues.map((value, i) => (
+                  <div key={i} className="flex flex-col items-center h-full flex-1">
+                    <span className="text-white text-xs font-medium mb-2">{value > 0 ? `+${value}` : value}</span>
+                    <div 
+                      className="relative h-48 w-full max-w-[50px] cursor-pointer group"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const percent = 1 - (e.clientY - rect.top) / rect.height;
+                        const newValue = Math.round((percent * 48) - 24);
+                        const clampedValue = Math.max(-24, Math.min(24, newValue));
+                        const newValues = [...equalizerValues];
+                        newValues[i] = clampedValue;
+                        setEqualizerValues(newValues);
+                        setEqualizerPreset('custom');
+                      }}
+                    >
+                      <div className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-2 bg-gray-700 rounded-full overflow-hidden">
+                        <div className="absolute bottom-1/2 left-0 right-0 bg-gray-600 transition-all" style={{ height: '50%' }}></div>
+                        <div 
+                          className="absolute left-0 right-0 bg-brand-primary transition-all"
+                          style={{ 
+                            bottom: value >= 0 ? '50%' : '0',
+                            height: `${(Math.abs(value) / 24) * 50}%`
+                          }}
+                        ></div>
+                      </div>
+                      <div 
+                        className="absolute left-1/2 -translate-x-1/2 w-4 h-4 bg-white rounded-full shadow-lg border-2 border-brand-primary"
+                        style={{ 
+                          bottom: `calc(50% + ${(value / 48) * 100}%)`,
+                          transform: 'translate(-50%, 50%)'
+                        }}
+                      ></div>
+                    </div>
+                    <span className="text-gray-400 text-xs mt-3">{equalizerLabels[i]}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between mt-2 px-4">
+                <span className="text-gray-500 text-xs">-24 dB</span>
+                <span className="text-gray-500 text-xs">0 dB</span>
+                <span className="text-gray-500 text-xs">+24 dB</span>
+              </div>
+            </div>
+          )}
+          
+          <div className="flex justify-end">
+            <button onClick={() => setShowEqualizer(false)} className="px-6 py-2 bg-brand-primary text-black font-semibold rounded-full">
+              Done
+            </button>
+          </div>
         </div>
       </Modal>
 
