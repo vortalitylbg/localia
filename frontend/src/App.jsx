@@ -142,9 +142,7 @@ function App() {
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
-  const [userAvatar, setUserAvatar] = useState(() => {
-    try { return localStorage.getItem('localify_avatar') || null; } catch { return null; }
-  });
+  const [userAvatar, setUserAvatar] = useState(() => { return null; });
   const [users, setUsers] = useState([]);
   const [view, setView] = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
@@ -187,6 +185,7 @@ function App() {
   const [newPin, setNewPin] = useState(['', '', '', '']);
   const [pinSetupError, setPinSetupError] = useState('');
   const [isDeletingProfile, setIsDeletingProfile] = useState(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [selectedProfileIndex, setSelectedProfileIndex] = useState(0);
   const [language, setLanguage] = useState(() => {
     const saved = localStorage.getItem('localify_language');
@@ -285,7 +284,7 @@ function App() {
           if (res.ok) {
             localStorage.removeItem('localify_token');
             localStorage.removeItem('localify_user');
-            localStorage.removeItem('localify_avatar');
+            localStorage.removeItem(`localify_avatar_${currentUser.id}`);
             if (currentUser.id) localStorage.removeItem(`localify_playback_state_${currentUser.id}`);
             setCurrentUser(null);
             setUsers(prev => prev.filter(u => u.id !== currentUser.id));
@@ -328,6 +327,10 @@ function App() {
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('localify_user', JSON.stringify(currentUser));
+      const userIdStr = String(currentUser.id);
+      const savedAvatar = localStorage.getItem(`localify_avatar_${userIdStr}`);
+      if (savedAvatar) setUserAvatar(savedAvatar);
+      else setUserAvatar(null);
       apiFetch(`/playlists/${currentUser.id}`).then(r => r?.json()).then(data => {
         if (data) {
           setPlaylists(data);
@@ -697,10 +700,38 @@ function App() {
 
   const handleAvatarUpload = (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => { setUserAvatar(ev.target.result); localStorage.setItem('localify_avatar', ev.target.result); };
-    reader.readAsDataURL(file);
+    if (!file || !currentUser) return;
+    const userIdStr = String(currentUser.id);
+    
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxSize = 150;
+      let width = img.width;
+      let height = img.height;
+      
+      if (width > height) {
+        if (width > maxSize) {
+          height *= maxSize / width;
+          width = maxSize;
+        }
+      } else {
+        if (height > maxSize) {
+          width *= maxSize / height;
+          height = maxSize;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      const avatarData = canvas.toDataURL('image/jpeg', 0.7);
+      setUserAvatar(avatarData); 
+      localStorage.setItem(`localify_avatar_${userIdStr}`, avatarData);
+    };
+    img.src = URL.createObjectURL(file);
   };
 
   const handleFileUpload = async (files) => {
@@ -1131,14 +1162,22 @@ function App() {
                             flexShrink: 0,
                           }}
                         >
-                          <div className={clsx(
-                            "w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center text-3xl md:text-4xl font-bold transition-all",
-                            isActive 
-                              ? 'bg-brand-primary text-black' 
-                              : 'bg-white/10 text-white'
-                          )}>
-                            {u.username[0].toUpperCase()}
-                          </div>
+                          {(() => {
+                            const userIdStr = String(u.id);
+                            const savedAvatar = localStorage.getItem(`localify_avatar_${userIdStr}`);
+                            return savedAvatar ? (
+                              <img src={savedAvatar} className="w-24 h-24 md:w-32 md:h-32 rounded-full object-cover" />
+                            ) : (
+                              <div className={clsx(
+                                "w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center text-3xl md:text-4xl font-bold transition-all",
+                                isActive 
+                                  ? 'bg-brand-primary text-black' 
+                                  : 'bg-white/10 text-white'
+                              )}>
+                                {u.username[0].toUpperCase()}
+                              </div>
+                            );
+                          })()}
                           <span className={clsx(
                             "font-medium transition-all",
                             isActive ? 'text-white text-base' : 'text-gray-500 text-sm'
@@ -1174,6 +1213,7 @@ function App() {
                     localStorage.setItem('localify_token', lr.token);
                     setCurrentUser(lr.user);
                     setShowRegister(false);
+                    apiFetch('/users').then(r => r?.json()).then(setUsers);
                   }
                 });
               } 
@@ -1918,11 +1958,7 @@ function App() {
                 </div>
               </div>
               <button 
-                onClick={() => {
-                  if (window.confirm('Are you sure you want to delete your profile? This action cannot be undone and all your playlists will be deleted.')) {
-                    setIsDeletingProfile(true);
-                  }
-                }}
+                onClick={() => setShowDeleteConfirmModal(true)}
                 className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-full text-sm hover:bg-red-500/30"
               >
                 Delete
@@ -1963,23 +1999,56 @@ function App() {
             onClick={async () => {
               const pin = newPin.join('');
               if (pin.length !== 4) { setPinSetupError('Enter 4 digits'); return; }
-              const res = await apiFetch(`/users/${currentUser.id}`, { 
-                method: 'PUT', 
-                body: JSON.stringify({ pin }) 
-              });
-              const data = await res.json();
-              if (data.success) {
-                setCurrentUser({ ...currentUser, hasPin: true });
-                apiFetch('/users').then(r => r?.json()).then(setUsers);
-                setShowPinSetupModal(false);
-              } else {
-                setPinSetupError(data.error || 'Failed to set PIN');
+              try {
+                const res = await fetch(`${API_BASE}/users/${currentUser.id}`, { 
+                  method: 'PUT', 
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...getAuthHeaders()
+                  },
+                  body: JSON.stringify({ pin }) 
+                });
+                const data = await res.json();
+                if (data.success) {
+                  setCurrentUser({ ...currentUser, hasPin: true });
+                  apiFetch('/users').then(r => r?.json()).then(setUsers);
+                  setShowPinSetupModal(false);
+                } else {
+                  setPinSetupError(`Error ${res.status}: ${data.error || 'Failed to set PIN'}`);
+                }
+              } catch (err) {
+                console.error('Error setting PIN:', err);
+                setPinSetupError('Network error: ' + err.message);
               }
             }} 
             className="w-full bg-brand-primary text-black font-bold py-3 rounded-full"
           >
             Save PIN
           </button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showDeleteConfirmModal} onClose={() => setShowDeleteConfirmModal(false)} title="Delete Profile" size="sm">
+        <div className="text-center py-4">
+          <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+          </div>
+          <p className="text-white font-medium mb-2">Are you sure?</p>
+          <p className="text-gray-400 text-sm mb-6">This action cannot be undone. All your playlists and data will be permanently deleted.</p>
+          <div className="flex gap-3">
+            <button 
+              onClick={() => setShowDeleteConfirmModal(false)}
+              className="flex-1 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={() => { setShowDeleteConfirmModal(false); setIsDeletingProfile(true); }}
+              className="flex-1 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 font-medium"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       </Modal>
 

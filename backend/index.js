@@ -309,15 +309,17 @@ app.get('/api/groups/:id', authenticate, (req, res) => {
 
 app.put('/api/users/:id', authenticate, async (req, res) => {
     const userId = req.params.id;
-    const { username, pin, removePin } = req.body;
+    const username = req.body.username;
+    const pin = req.body.pin;
+    const removePin = req.body.removePin;
     
     if (req.user.id !== parseInt(userId) && !req.user.is_admin) {
       return res.status(403).json({ error: "Not authorized" });
     }
     
     try {
-      if (username !== undefined) {
-        if (!username || username.trim().length < 2) {
+      if (username !== undefined && username !== null && username !== '') {
+        if (username.trim().length < 2) {
           return res.status(400).json({ error: "Username is required" });
         }
         const info = db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username.trim(), userId);
@@ -330,11 +332,11 @@ app.put('/api/users/:id', authenticate, async (req, res) => {
         
         if (removePin === true) {
           db.prepare('UPDATE users SET pin = NULL WHERE id = ?').run(userId);
-        } else if (pin !== null && pin !== undefined) {
-          if (pin && (pin.length !== 4 || !/^\d{4}$/.test(pin))) {
+        } else if (pin !== undefined) {
+          if (pin !== null && pin !== '' && (pin.length !== 4 || !/^\d{4}$/.test(pin))) {
             return res.status(400).json({ error: "PIN must be exactly 4 digits" });
           }
-          const hashedPin = pin ? await bcrypt.hash(pin, 10) : null;
+          const hashedPin = (pin && pin.length === 4) ? await bcrypt.hash(pin, 10) : null;
           db.prepare('UPDATE users SET pin = ? WHERE id = ?').run(hashedPin, userId);
         }
       }
