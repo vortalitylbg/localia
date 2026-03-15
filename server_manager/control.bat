@@ -1,7 +1,7 @@
 @echo off
 chcp 437 >nul
 color 0A
-title Localify Control
+title Localia Control
 
 :loop
 
@@ -9,7 +9,7 @@ call :status
 
 cls
 echo ==================================
-echo        LOCALIFY DEV PANEL
+echo        LOCALIA DEV PANEL
 echo ==================================
 echo.
 echo Backend  : %backend%
@@ -50,7 +50,7 @@ goto loop
 taskkill /F /IM node.exe >nul 2>&1
 del stop.txt 2>nul
 timeout /t 1 >nul
-start "" "%~dp0localify-dev.bat"
+start "" "%~dp0localia-dev.bat"
 exit
 
 

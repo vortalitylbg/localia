@@ -1054,7 +1054,7 @@ function App() {
         <div className="flex items-center justify-between p-4 md:p-6">
           <div className="flex items-center gap-3 text-white">
             <div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center"><Music className="w-6 h-6 text-black" /></div>
-            <span className="text-xl md:text-2xl font-black">Localify</span>
+            <span className="text-xl md:text-2xl font-black">Localia</span>
           </div>
           <div className="flex items-center gap-3">
             {gamepadConnected && (
@@ -1642,7 +1642,7 @@ function App() {
           <div className="p-4 md:p-6">
             <div className="flex items-center justify-between md:justify-start gap-3 text-white mb-6 md:mb-8">
               <button onClick={() => setShowMobileMenu(false)} className="md:hidden p-2 text-gray-400 hover:text-white"><XCircle className="w-7 h-7" /></button>
-              <div className="flex items-center gap-3"><div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center"><Music className="w-6 h-6 text-black" /></div><span className="text-xl font-black">Localify</span></div>
+              <div className="flex items-center gap-3"><div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center"><Music className="w-6 h-6 text-black" /></div><span className="text-xl font-black">Localia</span></div>
             </div>
             <nav className="space-y-1">
               <button {...getFocusProps('sidebar', 0)} onClick={() => { setView('home'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(0); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'home' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 0 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><Home className="w-6 h-6" /><span className="font-medium">{t('home')}</span></button>
@@ -2197,7 +2197,7 @@ function ConsoleModeView({
           <div className="w-8 h-8 bg-brand-primary rounded-lg flex items-center justify-center">
             <Music className="w-5 h-5 text-black" />
           </div>
-          <span className="text-white font-bold text-xl">Localify TV</span>
+          <span className="text-white font-bold text-xl">Localia TV</span>
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse ml-2"></div>
         </div>
         

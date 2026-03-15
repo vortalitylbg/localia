@@ -1,7 +1,7 @@
-# Plan: Gamepad Support for Localify
+# Plan: Gamepad Support for Localia
 
 ## Overview
-Add gamepad (PS4/Xbox) support for navigating the Localify music player app. Users can browse profiles, navigate the library, and control playback using a controller.
+Add gamepad (PS4/Xbox) support for navigating the Localia music player app. Users can browse profiles, navigate the library, and control playback using a controller.
 
 ## Implementation
 

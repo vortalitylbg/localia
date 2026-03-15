@@ -1,7 +1,7 @@
 # Plan: Refonte UI style Spotify
 
 ## Objectif
-Transformer l'interface de Localify pour ressembler davantage à Spotify avec:
+Transformer l'interface de Localia pour ressembler davantage à Spotify avec:
 - Sidebar sombre fixe à gauche
 - Zone principale avec coins arrondis
 - Couleurs Spotify (#121212, #181828, #1db954)
@@ -20,7 +20,7 @@ Transformer l'interface de Localify pour ressembler davantage à Spotify avec:
 
 ### 2. Sidebar (gauche)
 - Fond #121212
-- Logo "Localify" en haut
+- Logo "Localia" en haut
 - Navigation: Home, Search, Library
 - Section playlists avec scroll
 - Style hover: fond #282828

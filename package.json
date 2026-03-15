@@ -1,5 +1,5 @@
 {
-  "name": "localify",
+  "name": "localia",
   "version": "1.0.0",
   "scripts": {
     "start:backend": "cd backend && npm start",

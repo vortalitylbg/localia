@@ -5,7 +5,7 @@ frontend/node_modules/
 
 # Database
 *.db
-backend/localify.db
+backend/localia.db
 
 # Music files
 music/*
@@ -20,7 +20,7 @@ frontend/dist/
 .env.local
 
 # Website (separate repo)
-localify-web/
+localia-web/
 
 # OS
 .DS_Store

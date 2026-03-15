@@ -1,5 +1,5 @@
 @echo off
-title Localify Dev
+title Localia Dev
 
 set backendPath=C:\Users\charr\Desktop\Codage\Sites web\Localify\backend
 set frontendPath=C:\Users\charr\Desktop\Codage\Sites web\Localify\frontend

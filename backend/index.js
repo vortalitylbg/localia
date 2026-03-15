@@ -11,7 +11,7 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MUSIC_DIR = path.join(__dirname, '../music');
-const JWT_SECRET = process.env.JWT_SECRET || 'localify-dev-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || 'localia-dev-secret-change-in-production';
 const TOKEN_EXPIRY = 7 * 24 * 60 * 60 * 1000;
 
 const corsOptions = {
@@ -701,6 +701,6 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req, res) =>
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Localify backend running on http://0.0.0.0:${PORT}`);
+    console.log(`Localia backend running on http://0.0.0.0:${PORT}`);
     if (!fs.existsSync(MUSIC_DIR)) fs.mkdirSync(MUSIC_DIR);
 });
