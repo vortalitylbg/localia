@@ -353,7 +353,7 @@ function App() {
 
   useEffect(() => {
     if (view === 'stats' && currentUser) {
-      apiFetch(`/api/stats/${currentUser.id}`).then(r => r?.json()).then(data => {
+      apiFetch(`/stats/${currentUser.id}`).then(r => r?.json()).then(data => {
         if (data) setUserStats(data);
       }).catch(() => {});
     }
@@ -1540,7 +1540,7 @@ function App() {
                             <p className="text-white truncate">{t.title}</p>
                             <p className="text-gray-400 text-sm truncate">{t.artist}</p>
                           </div>
-                          <span className="text-gray-500 text-sm">{t.playCount} plays</span>
+                          <span className="text-gray-500 text-sm">{Math.floor((t.totalDuration || 0) / 3600)}h {Math.floor(((t.totalDuration || 0) % 3600) / 60)}m</span>
                         </div>
                       ))}
                     </div>
@@ -1553,11 +1553,15 @@ function App() {
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                       {userStats.topArtists.slice(0, 4).map((a, i) => (
                         <div key={i} className="bg-[#181818] p-4 rounded-xl">
-                          <div className="w-16 h-16 bg-gray-800 rounded-full mx-auto mb-3 flex items-center justify-center">
-                            <User className="w-8 h-8 text-gray-600" />
+                          <div className="w-16 h-16 bg-gray-800 rounded-full mx-auto mb-3 flex items-center justify-center overflow-hidden">
+                            {a.coverFileName ? (
+                              <img src={getCoverUrl(a.coverFileName)} className="w-full h-full object-cover" />
+                            ) : (
+                              <User className="w-8 h-8 text-gray-600" />
+                            )}
                           </div>
                           <p className="text-white text-center font-medium truncate">{a.artist}</p>
-                          <p className="text-gray-400 text-sm text-center">{a.playCount} plays</p>
+                          <p className="text-gray-400 text-sm text-center">{Math.floor((a.totalDuration || 0) / 3600)}h {Math.floor(((a.totalDuration || 0) % 3600) / 60)}m</p>
                         </div>
                       ))}
                     </div>
@@ -1570,8 +1574,12 @@ function App() {
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                       {userStats.topAlbums.slice(0, 4).map((a, i) => (
                         <div key={i} className="bg-[#181818] p-4 rounded-xl">
-                          <div className="w-full aspect-square bg-gray-800 rounded-lg mb-3 flex items-center justify-center">
-                            <Disc className="w-12 h-12 text-gray-600" />
+                          <div className="w-full aspect-square bg-gray-800 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
+                            {a.coverFileName ? (
+                              <img src={getCoverUrl(a.coverFileName)} className="w-full h-full object-cover" />
+                            ) : (
+                              <Disc className="w-12 h-12 text-gray-600" />
+                            )}
                           </div>
                           <p className="text-white text-sm font-medium truncate">{a.album}</p>
                           <p className="text-gray-400 text-xs truncate">{a.artist}</p>

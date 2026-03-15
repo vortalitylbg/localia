@@ -530,36 +530,38 @@ app.get('/api/stats/:userId', authenticate, async (req, res) => {
   // Stats globales utilisateur
   const userStats = db.prepare('SELECT * FROM user_stats WHERE userId = ?').get(userIdInt);
   
-  // Tracks les plus écoutés par l'utilisateur
+  // Tracks les plus écoutés par l'utilisateur (triés par durée d'écoute)
   const topTracks = db.prepare(`
     SELECT t.*, COUNT(tp.id) as playCount, SUM(tp.duration) as totalDuration
     FROM track_plays tp
     JOIN tracks t ON tp.trackId = t.id
     WHERE tp.userId = ?
     GROUP BY t.id
-    ORDER BY playCount DESC
+    ORDER BY totalDuration DESC
     LIMIT 10
   `).all(userIdInt);
   
-  // Artistes les plus écoutés
+  // Artistes les plus écoutés (triés par durée d'écoute)
   const topArtists = db.prepare(`
-    SELECT t.artist, COUNT(tp.id) as playCount, SUM(tp.duration) as totalDuration
+    SELECT t.artist, COUNT(tp.id) as playCount, SUM(tp.duration) as totalDuration,
+           (SELECT fileName FROM tracks WHERE artist = t.artist AND hasPicture = 1 LIMIT 1) as coverFileName
     FROM track_plays tp
     JOIN tracks t ON tp.trackId = t.id
     WHERE tp.userId = ?
     GROUP BY t.artist
-    ORDER BY playCount DESC
+    ORDER BY totalDuration DESC
     LIMIT 10
   `).all(userIdInt);
   
-  // Albums les plus écoutés
+  // Albums les plus écoutés (triés par durée d'écoute)
   const topAlbums = db.prepare(`
-    SELECT t.album, t.artist, COUNT(tp.id) as playCount, SUM(tp.duration) as totalDuration
+    SELECT t.album, t.artist, COUNT(tp.id) as playCount, SUM(tp.duration) as totalDuration,
+           (SELECT fileName FROM tracks WHERE album = t.album AND hasPicture = 1 LIMIT 1) as coverFileName
     FROM track_plays tp
     JOIN tracks t ON tp.trackId = t.id
     WHERE tp.userId = ?
     GROUP BY t.album
-    ORDER BY playCount DESC
+    ORDER BY totalDuration DESC
     LIMIT 10
   `).all(userIdInt);
   
