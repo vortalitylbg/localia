@@ -484,13 +484,98 @@ app.get('/api/tracks', optionalAuth, async (req, res) => {
 
 // Routes pour le suivi des écoutes
 app.post('/api/track-plays', authenticate, (req, res) => {
-  const { trackId, userId } = req.body;
+  const { trackId, userId, duration } = req.body;
   
-  // Enregistrer l'écoute
-  const stmt = db.prepare('INSERT INTO track_plays (trackId, userId) VALUES (?, ?)');
-  stmt.run(trackId, userId);
+  // Enregistrer l'écoute avec la durée
+  const durationInt = duration ? Math.floor(duration) : 0;
+  const stmt = db.prepare('INSERT INTO track_plays (trackId, userId, duration) VALUES (?, ?, ?)');
+  stmt.run(trackId, userId, durationInt);
+  
+  // Mettre à jour ou créer les stats utilisateur
+  const existingStats = db.prepare('SELECT * FROM user_stats WHERE userId = ?').get(userId);
+  if (existingStats) {
+    db.prepare('UPDATE user_stats SET totalListenTime = totalListenTime + ?, totalPlays = totalPlays + 1, lastUpdated = CURRENT_TIMESTAMP WHERE userId = ?').run(durationInt, userId);
+  } else {
+    db.prepare('INSERT INTO user_stats (userId, totalListenTime, totalPlays) VALUES (?, ?, 1)').run(userId, durationInt);
+  }
   
   res.json({ success: true });
+});
+
+// Routes pour les statistiques utilisateur
+app.get('/api/stats/:userId', authenticate, async (req, res) => {
+  const { userId } = req.params;
+  const userIdInt = parseInt(userId);
+  
+  // Stats globales utilisateur
+  const userStats = db.prepare('SELECT * FROM user_stats WHERE userId = ?').get(userIdInt);
+  
+  // Tracks les plus écoutés par l'utilisateur
+  const topTracks = db.prepare(`
+    SELECT t.*, COUNT(tp.id) as playCount, SUM(tp.duration) as totalDuration
+    FROM track_plays tp
+    JOIN tracks t ON tp.trackId = t.id
+    WHERE tp.userId = ?
+    GROUP BY t.id
+    ORDER BY playCount DESC
+    LIMIT 10
+  `).all(userIdInt);
+  
+  // Artistes les plus écoutés
+  const topArtists = db.prepare(`
+    SELECT t.artist, COUNT(tp.id) as playCount, SUM(tp.duration) as totalDuration
+    FROM track_plays tp
+    JOIN tracks t ON tp.trackId = t.id
+    WHERE tp.userId = ?
+    GROUP BY t.artist
+    ORDER BY playCount DESC
+    LIMIT 10
+  `).all(userIdInt);
+  
+  // Albums les plus écoutés
+  const topAlbums = db.prepare(`
+    SELECT t.album, t.artist, COUNT(tp.id) as playCount, SUM(tp.duration) as totalDuration
+    FROM track_plays tp
+    JOIN tracks t ON tp.trackId = t.id
+    WHERE tp.userId = ?
+    GROUP BY t.album
+    ORDER BY playCount DESC
+    LIMIT 10
+  `).all(userIdInt);
+  
+  // Écoutes par jour (derniers 7 jours)
+  const playsByDay = db.prepare(`
+    SELECT DATE(playedAt) as date, COUNT(*) as plays, SUM(duration) as duration
+    FROM track_plays
+    WHERE userId = ? AND playedAt >= DATE('now', '-7 days')
+    GROUP BY DATE(playedAt)
+    ORDER BY date ASC
+  `).all(userIdInt);
+  
+  // Total des écoutes
+  const totalPlays = db.prepare('SELECT COUNT(*) as count FROM track_plays WHERE userId = ?').get(userIdInt);
+  
+  // Durée totale d'écoute
+  const totalDuration = db.prepare('SELECT SUM(duration) as total FROM track_plays WHERE userId = ?').get(userIdInt);
+  
+  // Nombre de jours actifs
+  const activeDays = db.prepare('SELECT COUNT(DISTINCT DATE(playedAt)) as count FROM track_plays WHERE userId = ?').get(userIdInt);
+  
+  // Première et dernière écoute
+  const firstPlay = db.prepare('SELECT MIN(playedAt) as date FROM track_plays WHERE userId = ?').get(userIdInt);
+  const lastPlay = db.prepare('SELECT MAX(playedAt) as date FROM track_plays WHERE userId = ?').get(userIdInt);
+  
+  res.json({
+    totalListenTime: userStats?.totalListenTime || totalDuration?.total || 0,
+    totalPlays: userStats?.totalPlays || totalPlays?.count || 0,
+    activeDays: activeDays?.count || 0,
+    firstPlay: firstPlay?.date,
+    lastPlay: lastPlay?.date,
+    topTracks: topTracks || [],
+    topArtists: topArtists || [],
+    topAlbums: topAlbums || [],
+    playsByDay: playsByDay || []
+  });
 });
 
 // Routes pour les recommandations - tracks les plus écoutés globalement (indépendamment de l'utilisateur)

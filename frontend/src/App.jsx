@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Play, Pause, SkipBack, SkipForward, Volume2, Search as SearchIcon, Home, Library, PlusSquare, 
-  Music, Settings, User as UserIcon, Plus, ArrowLeft, Shuffle, Repeat, Sliders, Disc, User, Heart, ListMusic, Upload, LogOut, Camera, X, Menu, XCircle, Gamepad2
+  Music, Settings, User as UserIcon, Plus, ArrowLeft, Shuffle, Repeat, Sliders, Disc, User, Heart, ListMusic, Upload, LogOut, Camera, X, Menu, XCircle, Gamepad2, BarChart2
 } from 'lucide-react';
 import { useGamepad } from './useGamepad.jsx';
 import { GamepadHints } from './GamepadHints.jsx';
@@ -78,7 +78,7 @@ function TrackMenu({ track, onAddToPlaylist, onDelete, className = '', onTrackDe
   return (
     <div className={`relative ${className}`} ref={menuRef}>
       <button 
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
         className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10 transition-colors"
         title="Track options"
       >
@@ -88,7 +88,7 @@ function TrackMenu({ track, onAddToPlaylist, onDelete, className = '', onTrackDe
       {isOpen && (
         <div className="absolute right-0 mt-2 w-64 bg-[#181818] border border-white/10 rounded-lg shadow-xl z-50 py-2">
           <button 
-            onClick={() => { setIsOpen(false); onAddToPlaylist(track); }}
+            onClick={(e) => { e.stopPropagation(); setIsOpen(false); onAddToPlaylist(track); }}
             className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-3"
           >
             <Plus className="w-4 h-4" />
@@ -96,7 +96,7 @@ function TrackMenu({ track, onAddToPlaylist, onDelete, className = '', onTrackDe
           </button>
           {onAddToQueue && (
             <button 
-              onClick={() => { setIsOpen(false); onAddToQueue(track); }}
+              onClick={(e) => { e.stopPropagation(); setIsOpen(false); onAddToQueue(track); }}
               className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-3"
             >
               <ListMusic className="w-4 h-4" />
@@ -104,7 +104,7 @@ function TrackMenu({ track, onAddToPlaylist, onDelete, className = '', onTrackDe
             </button>
           )}
           <button 
-            onClick={() => { setIsOpen(false); handleDelete(); }}
+            onClick={(e) => { e.stopPropagation(); setIsOpen(false); handleDelete(); }}
             className="w-full text-left px-4 py-2 text-red-400 hover:bg-red-500/10 flex items-center gap-3"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -164,6 +164,7 @@ function App() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
   const [trackToAdd, setTrackToAdd] = useState(null);
+  const [userStats, setUserStats] = useState(null);
   const [uploadFiles, setUploadFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const uploadInputRef = useRef(null);
@@ -192,6 +193,8 @@ function App() {
   const [queue, setQueue] = useState([]);
   const [showQueueModal, setShowQueueModal] = useState(false);
   const [searchFilter, setSearchFilter] = useState('all');
+  const [contextMenu, setContextMenu] = useState(null);
+  const lastPlayTime = useRef(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [focusIndex, setFocusIndex] = useState(0);
   const [focusCategory, setFocusCategory] = useState('profile');
@@ -202,6 +205,7 @@ function App() {
   const [flatItems, setFlatItems] = useState([]);
 
   const audioRef = useRef(null);
+  const [trackStartTime, setTrackStartTime] = useState(null);
   const avatarInputRef = useRef(null);
 
   const equalizerPresets = {
@@ -232,6 +236,37 @@ function App() {
     };
     return trans[language]?.[key] || trans.en[key] || key;
   };
+
+  // Disable default context menu and handle custom one
+  useEffect(() => {
+    const handleContextMenu = (e) => {
+      // Find if clicking on a track row
+      const trackRow = e.target.closest('[data-track-id]');
+      if (trackRow) {
+        e.preventDefault();
+        const trackId = trackRow.getAttribute('data-track-id');
+        const track = tracks.find(t => t.id === trackId);
+        if (track) {
+          setContextMenu({
+            track,
+            x: e.clientX,
+            y: e.clientY
+          });
+        }
+      }
+    };
+
+    const handleClick = () => {
+      setContextMenu(null);
+    };
+
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('click', handleClick);
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('click', handleClick);
+    };
+  }, [tracks]);
 
   useEffect(() => { localStorage.setItem('localify_language', language); }, [language]);
 
@@ -274,6 +309,14 @@ function App() {
       });
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (view === 'stats' && currentUser) {
+      apiFetch(`/api/stats/${currentUser.id}`).then(r => r?.json()).then(data => {
+        if (data) setUserStats(data);
+      }).catch(() => {});
+    }
+  }, [view, currentUser]);
 
   useEffect(() => {
     const a = audioRef.current;
@@ -448,6 +491,22 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentTrack, isPlaying, duration, currentPlayList, tracks, isShuffle, repeatMode, consoleMode, flatItems, consoleFocus, setConsoleFocus]);
 
+  const recordTrackDuration = (trackId, userId) => {
+    if (!trackStartTime || !trackId || !userId) return;
+    const listenedDuration = Math.floor((Date.now() - trackStartTime) / 1000);
+    if (listenedDuration > 0) {
+      apiFetch('/track-plays', {
+        method: 'POST',
+        body: JSON.stringify({
+          trackId,
+          userId,
+          duration: listenedDuration
+        })
+      }).catch(err => console.error('Failed to record duration:', err));
+    }
+    setTrackStartTime(null);
+  };
+
   const playTrack = (track, list = null) => {
     const playlist = list || currentPlayList || tracks;
     setCurrentPlayList(playlist);
@@ -458,8 +517,15 @@ function App() {
       setIsPlaying(!isPlaying);
       return;
     }
+
+    // Record duration of previous track before switching
+    if (currentTrack && currentUser && trackStartTime) {
+      recordTrackDuration(currentTrack.id, currentUser.id);
+    }
+
     setCurrentTrack(track);
     setIsPlaying(true);
+    setTrackStartTime(Date.now());
     audioRef.current.src = getStreamUrl(track.fileName);
     audioRef.current.play().catch(() => {});
     setRecentlyPlayed(prev => [track, ...prev.filter(t => t.id !== track.id)].slice(0, 20));
@@ -477,6 +543,14 @@ function App() {
   };
 
   const handleNext = () => {
+    // If queue has items, play from queue first
+    if (queue.length > 0) {
+      const nextTrack = queue[0];
+      removeFromQueue(0);
+      playTrack(nextTrack, [nextTrack, ...queue]);
+      return;
+    }
+    
     const list = currentPlayList.length > 0 ? currentPlayList : tracks;
     if (list.length === 0) return;
     let nextIndex = isShuffle ? Math.floor(Math.random() * list.length) : list.findIndex(t => t.id === currentTrack?.id) + 1;
@@ -1086,7 +1160,7 @@ function App() {
             <div><p className="text-white text-xs sm:text-sm uppercase">Album</p><h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white">{album.name}</h1><p className="text-white text-sm sm:text-base">{album.artist}</p></div>
           </div>
           <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-6"><button onClick={() => albumTracks[0] && playTrack(albumTracks[0], albumTracks)} className="w-12 sm:w-14 h-12 sm:h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 sm:w-7 h-6 sm:h-7 text-black ml-0.5 sm:ml-1" /></button></div>
-          <div className="px-3 sm:px-6">{albumTracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, albumTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500 text-xs sm:text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
+          <div className="px-3 sm:px-6">{albumTracks.map((t, i) => <div key={t.id} data-track-id={t.id} onClick={() => playTrack(t, albumTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500 text-xs sm:text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
         </div>
       );
     }
@@ -1101,7 +1175,7 @@ function App() {
             <div><p className="text-white text-xs sm:text-sm uppercase">Artist</p><h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white">{artist.name}</h1></div>
           </div>
           <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-6"><button onClick={() => aTracks[0] && playTrack(aTracks[0], aTracks)} className="w-12 sm:w-14 h-12 sm:h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 sm:w-7 h-6 sm:h-7 text-black ml-0.5 sm:ml-1" /></button></div>
-          <div className="px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2>{aTracks.slice(0,10).map((t, i) => <div key={t.id} onClick={() => playTrack(t, aTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500 text-xs sm:text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}
+          <div className="px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2>{aTracks.slice(0,10).map((t, i) => <div key={t.id} data-track-id={t.id} onClick={() => playTrack(t, aTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p></div><span className="text-gray-500 text-xs sm:text-sm">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}
           <h2 className="text-lg sm:text-xl font-bold text-white mt-6 sm:mt-8 mb-3 sm:mb-4">{t('albums')}</h2>
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{aAlbums.map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-xs sm:text-sm truncate">{a.name}</p></div>)}</div></div></div>
       );
@@ -1115,7 +1189,7 @@ function App() {
             <div><p className="text-white text-xs sm:text-sm uppercase">{t('playlists')}</p><h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white">{activePlaylist.name}</h1><p className="text-gray-400 text-sm sm:text-base">{playlistTracks.length} {t('songs')}</p></div>
           </div>
           <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-6"><button onClick={() => playlistTracks[0] && playTrack(playlistTracks[0], playlistTracks)} className="w-12 sm:w-14 h-12 sm:h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 sm:w-7 h-6 sm:h-7 text-black ml-0.5 sm:ml-1" /></button><button onClick={() => { if (playlistTracks.length) { const s = [...playlistTracks].sort(() => Math.random() - 0.5); playTrack(s[0], s); }}} className="text-gray-400 hover:text-white hidden sm:block"><Shuffle className="w-5 sm:w-6 h-5 sm:h-6" /></button></div>
-          <div className="px-3 sm:px-6">{playlistTracks.map((t, i) => <div key={t.id} onClick={() => playTrack(t, playlistTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate hidden sm:block">{t.artist}</p></div><button onClick={(e) => { e.stopPropagation(); toggleFavorite(t); }} className="text-gray-400 hover:text-white flex-shrink-0"><Heart className={clsx("w-4 sm:w-5 h-4 sm:h-5", playlistTracks.some(x => x.id === t.id) ? 'fill-red-500 text-red-500' : '')} /></button><span className="text-gray-500 text-xs sm:text-sm hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
+          <div className="px-3 sm:px-6">{playlistTracks.map((t, i) => <div key={t.id} data-track-id={t.id} onClick={() => playTrack(t, playlistTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate hidden sm:block">{t.artist}</p></div><button onClick={(e) => { e.stopPropagation(); toggleFavorite(t); }} className="text-gray-400 hover:text-white flex-shrink-0"><Heart className={clsx("w-4 sm:w-5 h-4 sm:h-5", playlistTracks.some(x => x.id === t.id) ? 'fill-red-500 text-red-500' : '')} /></button><span className="text-gray-500 text-xs sm:text-sm hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
         </div>
       );
     }
@@ -1141,6 +1215,7 @@ function App() {
                   {(recommendations.length > 0 ? recommendations : tracks.slice(0, 6)).map((t, i) => (
                     <div 
                       key={t.id} 
+                      data-track-id={t.id}
                       {...getFocusProps('recommendations', i)}
                       onClick={() => playTrack(t, recommendations.length > 0 ? recommendations : tracks)}
                       className={clsx(
@@ -1258,7 +1333,7 @@ function App() {
                 {searchFilter === 'all' && (
                   <>
                     <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2>
-                    <div className="space-y-0.5 sm:space-y-1 mb-6">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className="text-white text-sm truncate">{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate">{t.artist}</p></div></div>)}</div>
+                    <div className="space-y-0.5 sm:space-y-1 mb-6">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} data-track-id={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className="text-white text-sm truncate">{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate">{t.artist}</p></div></div>)}</div>
                     <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('artists')}</h2>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">{getUniqueArtists().filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 sm:p-4 bg-[#181818] hover:bg-[#252532] rounded-xl cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover rounded-full" /> : <User className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-sm truncate text-center">{a.name}</p></div>)}</div>
                   </>
@@ -1267,7 +1342,7 @@ function App() {
                 {searchFilter === 'title' && (
                   <>
                     <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2>
-                    <div className="space-y-0.5 sm:space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 20).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className="text-white text-sm truncate">{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate">{t.artist}</p></div></div>)}</div>
+                    <div className="space-y-0.5 sm:space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 20).map(t => <div key={t.id} data-track-id={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className="text-white text-sm truncate">{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate">{t.artist}</p></div></div>)}</div>
                   </>
                 )}
                 
@@ -1289,6 +1364,117 @@ function App() {
           </div>
         )}
 
+        {view === 'stats' && (
+          <div className="px-3 sm:px-6 pb-8">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-6">{t('stats') || 'Your Statistics'}</h1>
+            
+            {!userStats ? (
+              <div className="flex items-center justify-center h-64">
+                <p className="text-gray-400">Loading statistics...</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-8">
+                  <div className="bg-[#181818] p-4 rounded-xl">
+                    <p className="text-gray-400 text-sm mb-1">Total Listen Time</p>
+                    <p className="text-2xl font-bold text-white">{Math.floor((userStats.totalListenTime || 0) / 3600)}h {Math.floor(((userStats.totalListenTime || 0) % 3600) / 60)}m</p>
+                  </div>
+                  <div className="bg-[#181818] p-4 rounded-xl">
+                    <p className="text-gray-400 text-sm mb-1">Total Plays</p>
+                    <p className="text-2xl font-bold text-white">{userStats.totalPlays || 0}</p>
+                  </div>
+                  <div className="bg-[#181818] p-4 rounded-xl">
+                    <p className="text-gray-400 text-sm mb-1">Active Days</p>
+                    <p className="text-2xl font-bold text-white">{userStats.activeDays || 0}</p>
+                  </div>
+                  <div className="bg-[#181818] p-4 rounded-xl">
+                    <p className="text-gray-400 text-sm mb-1">Top Artist</p>
+                    <p className="text-lg font-bold text-white truncate">{userStats.topArtists?.[0]?.artist || '-'}</p>
+                  </div>
+                </div>
+
+                {userStats.playsByDay && userStats.playsByDay.length > 0 && (
+                  <div className="mb-8">
+                    <h2 className="text-xl font-bold text-white mb-4">Plays This Week</h2>
+                    <div className="flex items-end gap-2 h-32">
+                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => {
+                        const dayData = userStats.playsByDay.find(d => {
+                          const date = new Date(d.date);
+                          return date.getDay() === (i === 0 ? 7 : i);
+                        });
+                        const plays = dayData?.plays || 0;
+                        const maxPlays = Math.max(...userStats.playsByDay.map(d => d.plays), 1);
+                        const height = (plays / maxPlays) * 100;
+                        return (
+                          <div key={day} className="flex-1 flex flex-col items-center gap-2">
+                            <div className="w-full bg-[#181818] rounded-t-md relative" style={{ height: `${height}%`, minHeight: plays > 0 ? '8px' : '0' }}>
+                              <div className="absolute bottom-0 w-full bg-brand-primary rounded-t-md transition-all" style={{ height: '100%' }} />
+                            </div>
+                            <span className="text-gray-400 text-xs">{day}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {userStats.topTracks && userStats.topTracks.length > 0 && (
+                  <div className="mb-8">
+                    <h2 className="text-xl font-bold text-white mb-4">Top Tracks</h2>
+                    <div className="space-y-1">
+                      {userStats.topTracks.slice(0, 5).map((t, i) => (
+                        <div key={t.id} data-track-id={t.id} onClick={() => playTrack(t)} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer">
+                          <span className="text-gray-400 w-6 text-center">{i + 1}</span>
+                          <div className="w-10 h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover rounded" /> : <Music className="w-5 h-5 text-gray-600 m-auto" />}</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white truncate">{t.title}</p>
+                            <p className="text-gray-400 text-sm truncate">{t.artist}</p>
+                          </div>
+                          <span className="text-gray-500 text-sm">{t.playCount} plays</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {userStats.topArtists && userStats.topArtists.length > 0 && (
+                  <div className="mb-8">
+                    <h2 className="text-xl font-bold text-white mb-4">Top Artists</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                      {userStats.topArtists.slice(0, 4).map((a, i) => (
+                        <div key={i} className="bg-[#181818] p-4 rounded-xl">
+                          <div className="w-16 h-16 bg-gray-800 rounded-full mx-auto mb-3 flex items-center justify-center">
+                            <User className="w-8 h-8 text-gray-600" />
+                          </div>
+                          <p className="text-white text-center font-medium truncate">{a.artist}</p>
+                          <p className="text-gray-400 text-sm text-center">{a.playCount} plays</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {userStats.topAlbums && userStats.topAlbums.length > 0 && (
+                  <div>
+                    <h2 className="text-xl font-bold text-white mb-4">Top Albums</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                      {userStats.topAlbums.slice(0, 4).map((a, i) => (
+                        <div key={i} className="bg-[#181818] p-4 rounded-xl">
+                          <div className="w-full aspect-square bg-gray-800 rounded-lg mb-3 flex items-center justify-center">
+                            <Disc className="w-12 h-12 text-gray-600" />
+                          </div>
+                          <p className="text-white text-sm font-medium truncate">{a.album}</p>
+                          <p className="text-gray-400 text-xs truncate">{a.artist}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {isLibrary && (
           <div className="px-3 sm:px-6 pb-8">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 py-3 sm:py-4"><h1 className="text-2xl sm:text-3xl font-bold text-white">{t('library')}</h1><button onClick={() => setShowPlaylistModal(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/10 rounded-full text-white text-sm self-start"><Plus className="w-4 h-4" />{t('createPlaylist')}</button></div>
@@ -1299,7 +1485,7 @@ function App() {
               <button {...getFocusProps('library-tabs', 3)} onClick={() => { setView('library-artists'); setFocusCategory('library-tabs'); setFocusIndex(3); }} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
             </div>
             {view === 'library' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{playlists.map((p, i) => <div {...getFocusProps('playlists', i)} key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'playlists' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3"><ListMusic className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" /></div><p className="text-white text-xs sm:text-sm truncate">{p.name}</p></div>)}</div>}
-            {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="flex items-center gap-2 sm:gap-4 flex-1"><div className="flex items-center gap-2 sm:gap-4 flex-1">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div><TrackMenu track={t} onAddToPlaylist={addToPlaylist} onAddToQueue={addToQueue} onDelete={() => {}} onTrackDelete={(deletedTrack) => {
+            {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} data-track-id={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="flex items-center gap-2 sm:gap-4 flex-1"><div className="flex items-center gap-2 sm:gap-4 flex-1">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div><TrackMenu track={t} onAddToPlaylist={addToPlaylist} onAddToQueue={addToQueue} onDelete={() => {}} onTrackDelete={(deletedTrack) => {
               // Refresh tracks list
               apiFetch('/tracks').then(r => r?.json()).then(newTracks => {
                 if (newTracks) {
@@ -1351,7 +1537,15 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-black">
-      <audio ref={audioRef} />
+      <audio 
+        ref={audioRef} 
+        onEnded={() => {
+          if (currentTrack && currentUser) {
+            recordTrackDuration(currentTrack.id, currentUser.id);
+          }
+          handleNext();
+        }}
+      />
       <div className="flex-1 flex overflow-hidden">
         <aside className={clsx(
           "fixed md:relative z-40 h-full bg-black flex flex-col flex-shrink-0 transition-transform duration-300",
@@ -1366,6 +1560,7 @@ function App() {
               <button {...getFocusProps('sidebar', 0)} onClick={() => { setView('home'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(0); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'home' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 0 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><Home className="w-6 h-6" /><span className="font-medium">{t('home')}</span></button>
               <button {...getFocusProps('sidebar', 1)} onClick={() => { setView('search'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(1); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'search' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 1 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><SearchIcon className="w-6 h-6" /><span className="font-medium">{t('search')}</span></button>
               <button {...getFocusProps('sidebar', 2)} onClick={() => { setView('library'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(2); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'library' || view.startsWith('library') ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 2 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><Library className="w-6 h-6" /><span className="font-medium">{t('library')}</span></button>
+              <button {...getFocusProps('sidebar', 3)} onClick={() => { setView('stats'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(3); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'stats' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 3 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><BarChart2 className="w-6 h-6" /><span className="font-medium">{t('stats') || 'Statistics'}</span></button>
             </nav>
             <div className="mt-6 md:mt-8">
               <div className="flex items-center justify-between px-4 mb-3"><span className="text-gray-400 text-sm font-medium uppercase">{t('playlists')}</span><button onClick={() => setShowPlaylistModal(true)} className="text-gray-400 hover:text-white"><Plus className="w-5 h-5" /></button></div>
@@ -1380,7 +1575,7 @@ function App() {
           <header className="flex items-center justify-between p-3 md:p-4 gap-2">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <button onClick={() => setShowMobileMenu(true)} className="md:hidden p-2 text-gray-400 hover:text-white flex-shrink-0"><Menu className="w-6 h-6" /></button>
-              {(view !== 'home' && view !== 'search' && view !== 'library' && !view.startsWith('library') && view !== 'settings') && <button onClick={() => { setView('home'); setSelectedAlbum(null); setSelectedArtist(null); setActivePlaylist(null); }} className="p-2 bg-black/50 rounded-full hover:scale-110 flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>}
+              {(view !== 'home' && view !== 'search' && view !== 'library' && !view.startsWith('library') && view !== 'settings' && view !== 'stats') && <button onClick={() => { setView('home'); setSelectedAlbum(null); setSelectedArtist(null); setActivePlaylist(null); }} className="p-2 bg-black/50 rounded-full hover:scale-110 flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>}
               <div className="relative w-full max-w-xs md:max-w-md lg:max-w-80 hidden sm:block"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); if (view !== 'search') setView('search'); }} placeholder={t('searchPlaceholder')} className="w-full bg-white/10 border border-transparent rounded-full py-2 pl-10 pr-4 text-white placeholder-gray-400 focus:outline-none focus:bg-white/20 text-sm" /></div>
             </div>
             <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
@@ -1647,6 +1842,29 @@ function App() {
           </div>
         )}
       </Modal>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div 
+          className="fixed bg-[#181818] border border-white/10 rounded-lg shadow-xl z-50 py-2"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button 
+            onClick={() => { addToPlaylist(contextMenu.track); setContextMenu(null); }}
+            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-3"
+          >
+            <Plus className="w-4 h-4" />
+            Add to playlist
+          </button>
+          <button 
+            onClick={() => { addToQueue(contextMenu.track); setContextMenu(null); }}
+            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-3"
+          >
+            <ListMusic className="w-4 h-4" />
+            Add to queue
+          </button>
+        </div>
+      )}
 
       {gamepadConnected && currentUser && (
         <GamepadHints controllerType={controllerType} mode="navigation" />

@@ -58,7 +58,17 @@ try {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         trackId TEXT,
         userId INTEGER,
+        duration INTEGER DEFAULT 0,
         playedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (userId) REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS user_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER UNIQUE,
+        totalListenTime INTEGER DEFAULT 0,
+        totalPlays INTEGER DEFAULT 0,
+        lastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (userId) REFERENCES users(id)
       );
 
@@ -81,6 +91,7 @@ try {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           trackId TEXT,
           userId INTEGER,
+          duration INTEGER DEFAULT 0,
           playedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (userId) REFERENCES users(id)
         );
@@ -88,12 +99,18 @@ try {
       // Copier les données si la table n'est pas vide
       const oldData = db.prepare("SELECT * FROM track_plays_old").all();
       if (oldData.length > 0) {
-        const insert = db.prepare("INSERT INTO track_plays (trackId, userId, playedAt) VALUES (?, ?, ?)");
+        const insert = db.prepare("INSERT INTO track_plays (trackId, userId, playedAt, duration) VALUES (?, ?, ?, 0)");
         for (const row of oldData) {
           insert.run(String(row.trackId), row.userId, row.playedAt);
         }
       }
       db.exec("DROP TABLE track_plays_old");
+    } else {
+      // Add duration column if it doesn't exist
+      const durationCol = trackPlaysInfo.find(c => c.name === 'duration');
+      if (!durationCol) {
+        db.exec("ALTER TABLE track_plays ADD COLUMN duration INTEGER DEFAULT 0");
+      }
     }
     
     // Migration: modifier le type de tracks.id si c'est un INTEGER
