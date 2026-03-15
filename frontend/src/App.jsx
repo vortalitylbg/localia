@@ -42,7 +42,7 @@ const apiFetch = async (url, options = {}) => {
   return res;
 };
 
-function TrackMenu({ track, onAddToPlaylist, onDelete, className = '', onTrackDelete }) {
+function TrackMenu({ track, onAddToPlaylist, onDelete, className = '', onTrackDelete, onAddToQueue }) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -61,7 +61,6 @@ function TrackMenu({ track, onAddToPlaylist, onDelete, className = '', onTrackDe
       try {
         const res = await apiFetch(`/tracks/${encodeURIComponent(track.fileName)}`, { method: 'DELETE' });
         if (res.ok) {
-          // Call parent handler to refresh tracks and handle playback
           if (onTrackDelete) {
             onTrackDelete(track);
           }
@@ -95,6 +94,15 @@ function TrackMenu({ track, onAddToPlaylist, onDelete, className = '', onTrackDe
             <Plus className="w-4 h-4" />
             Add to playlist
           </button>
+          {onAddToQueue && (
+            <button 
+              onClick={() => { setIsOpen(false); onAddToQueue(track); }}
+              className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-3"
+            >
+              <ListMusic className="w-4 h-4" />
+              Add to queue
+            </button>
+          )}
           <button 
             onClick={() => { setIsOpen(false); handleDelete(); }}
             className="w-full text-left px-4 py-2 text-red-400 hover:bg-red-500/10 flex items-center gap-3"
@@ -181,6 +189,9 @@ function App() {
   const [currentPlayList, setCurrentPlayList] = useState([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
+  const [queue, setQueue] = useState([]);
+  const [showQueueModal, setShowQueueModal] = useState(false);
+  const [searchFilter, setSearchFilter] = useState('all');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [focusIndex, setFocusIndex] = useState(0);
   const [focusCategory, setFocusCategory] = useState('profile');
@@ -472,6 +483,24 @@ function App() {
     if (nextIndex >= list.length) nextIndex = repeatMode === 'off' ? -1 : 0;
     if (nextIndex >= 0) playTrack(list[nextIndex], list);
     else setIsPlaying(false);
+  };
+
+  const addToQueue = (track) => {
+    setQueue(prev => [...prev, track]);
+  };
+
+  const removeFromQueue = (index) => {
+    setQueue(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const clearQueue = () => {
+    setQueue([]);
+  };
+
+  const playFromQueue = (index) => {
+    const track = queue[index];
+    removeFromQueue(index);
+    playTrack(track, [track, ...queue]);
   };
 
   const handlePrev = () => {
@@ -1217,7 +1246,46 @@ function App() {
         {view === 'search' && (
           <div className="px-3 sm:px-6 pb-8">
             <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-6">{t('search')}</h1>
-            {searchQuery && <><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2><div className="space-y-0.5 sm:space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className="text-white text-sm truncate">{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate">{t.artist}</p></div></div>)}</div></>}
+            {searchQuery && (
+              <>
+                <div className="flex gap-2 mb-4 sm:mb-6">
+                  <button onClick={() => setSearchFilter('all')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium", searchFilter === 'all' ? 'bg-white text-black' : 'bg-white/10 text-white')}>Tout</button>
+                  <button onClick={() => setSearchFilter('title')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium", searchFilter === 'title' ? 'bg-white text-black' : 'bg-white/10 text-white')}>Titres</button>
+                  <button onClick={() => setSearchFilter('artist')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium", searchFilter === 'artist' ? 'bg-white text-black' : 'bg-white/10 text-white')}>Artistes</button>
+                  <button onClick={() => setSearchFilter('album')} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium", searchFilter === 'album' ? 'bg-white text-black' : 'bg-white/10 text-white')}>Albums</button>
+                </div>
+                
+                {searchFilter === 'all' && (
+                  <>
+                    <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2>
+                    <div className="space-y-0.5 sm:space-y-1 mb-6">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.artist.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className="text-white text-sm truncate">{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate">{t.artist}</p></div></div>)}</div>
+                    <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('artists')}</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">{getUniqueArtists().filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 sm:p-4 bg-[#181818] hover:bg-[#252532] rounded-xl cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover rounded-full" /> : <User className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-sm truncate text-center">{a.name}</p></div>)}</div>
+                  </>
+                )}
+                
+                {searchFilter === 'title' && (
+                  <>
+                    <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2>
+                    <div className="space-y-0.5 sm:space-y-1">{tracks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 20).map(t => <div key={t.id} onClick={() => playTrack(t)} className="flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer"><div className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded flex-shrink-0">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}</div><div className="flex-1 min-w-0"><p className="text-white text-sm truncate">{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate">{t.artist}</p></div></div>)}</div>
+                  </>
+                )}
+                
+                {searchFilter === 'artist' && (
+                  <>
+                    <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('artists')}</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">{getUniqueArtists().filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 20).map(a => <div key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className="p-3 sm:p-4 bg-[#181818] hover:bg-[#252532] rounded-xl cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover rounded-full" /> : <User className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-sm truncate text-center">{a.name}</p></div>)}</div>
+                  </>
+                )}
+                
+                {searchFilter === 'album' && (
+                  <>
+                    <h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('albums')}</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">{getUniqueAlbums().filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 20).map(a => <div key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className="p-3 sm:p-4 bg-[#181818] hover:bg-[#252532] rounded-xl cursor-pointer"><div className="w-full aspect-square bg-gray-800 rounded-lg mb-2 sm:mb-3">{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full h-full object-cover rounded-lg" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" />}</div><p className="text-white text-sm truncate">{a.name}</p><p className="text-gray-500 text-xs truncate">{a.artist}</p></div>)}</div>
+                  </>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -1231,7 +1299,7 @@ function App() {
               <button {...getFocusProps('library-tabs', 3)} onClick={() => { setView('library-artists'); setFocusCategory('library-tabs'); setFocusIndex(3); }} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
             </div>
             {view === 'library' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{playlists.map((p, i) => <div {...getFocusProps('playlists', i)} key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'playlists' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3"><ListMusic className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" /></div><p className="text-white text-xs sm:text-sm truncate">{p.name}</p></div>)}</div>}
-            {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="flex items-center gap-2 sm:gap-4 flex-1"><div className="flex items-center gap-2 sm:gap-4 flex-1">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div><TrackMenu track={t} onAddToPlaylist={addToPlaylist} onDelete={() => {}} onTrackDelete={(deletedTrack) => {
+            {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="flex items-center gap-2 sm:gap-4 flex-1"><div className="flex items-center gap-2 sm:gap-4 flex-1">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div><TrackMenu track={t} onAddToPlaylist={addToPlaylist} onAddToQueue={addToQueue} onDelete={() => {}} onTrackDelete={(deletedTrack) => {
               // Refresh tracks list
               apiFetch('/tracks').then(r => r?.json()).then(newTracks => {
                 if (newTracks) {
@@ -1371,6 +1439,12 @@ function App() {
             <button onClick={() => { if (currentTrack) { if (isPlaying) audioRef.current.pause(); else audioRef.current.play(); setIsPlaying(!isPlaying); } }} className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg">{isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5 text-black" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 text-black ml-0.5" />}</button>
             <button onClick={handleNext} className="text-gray-400 hover:text-white transition-colors"><SkipForward className="w-4 h-5" /></button>
             <button onClick={() => setRepeatMode(repeatMode === 'off' ? 'all' : 'off')} className={clsx("transition-colors hidden sm:block", repeatMode !== 'off' ? 'text-brand-primary' : 'text-gray-400 hover:text-white')}><Repeat className="w-4 h-4" /></button>
+            <button onClick={() => setShowQueueModal(true)} className="text-gray-400 hover:text-white transition-colors relative">
+              <ListMusic className="w-4 h-4" />
+              {queue.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-brand-primary text-white text-[10px] rounded-full flex items-center justify-center">{queue.length}</span>
+              )}
+            </button>
           </div>
           <div className="w-full flex items-center gap-1 sm:gap-3">
             <span className="text-gray-400 text-xs w-6 sm:w-10 text-right tabular-nums hidden sm:block">{Math.floor(currentTime/60)}:{String(Math.floor(currentTime%60)).padStart(2,'0')}</span>
@@ -1527,6 +1601,51 @@ function App() {
           <div className="flex flex-wrap gap-2">{Object.entries(equalizerPresets).map(([k, p]) => <button key={k} onClick={() => applyPreset(k)} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm", equalizerPreset === k ? 'bg-brand-primary text-black' : 'bg-white/10 text-white')}>{p.name}</button>)}</div>
           <div className="flex justify-end"><button onClick={() => setShowEqualizer(false)} className="px-5 sm:px-6 py-1.5 sm:py-2 bg-brand-primary text-black font-semibold rounded-full text-sm sm:text-base">Done</button></div>
         </div>
+      </Modal>
+
+      <Modal isOpen={showQueueModal} onClose={() => setShowQueueModal(false)} title="File d'attente" size="lg">
+        <div className="max-h-[60vh] overflow-y-auto">
+          {queue.length === 0 ? (
+            <div className="text-center py-8">
+              <ListMusic className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-400">La file d'attente est vide</p>
+              <p className="text-gray-500 text-sm mt-1">Les titres ajoutés apparaîtront ici</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {queue.map((track, index) => (
+                <div key={`${track.id}-${index}`} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg group">
+                  <span className="text-gray-500 text-sm w-6">{index + 1}</span>
+                  <div className="w-10 h-10 bg-gray-800 rounded flex-shrink-0 overflow-hidden">
+                    {track.hasPicture ? (
+                      <img src={getCoverUrl(track.fileName)} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Disc className="w-5 h-5 text-gray-600" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm truncate">{track.title}</p>
+                    <p className="text-gray-500 text-xs truncate">{track.artist}</p>
+                  </div>
+                  <button onClick={() => playFromQueue(index)} className="p-2 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Play className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => removeFromQueue(index)} className="p-2 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {queue.length > 0 && (
+          <div className="flex justify-between mt-4 pt-4 border-t border-white/10">
+            <button onClick={clearQueue} className="text-gray-400 hover:text-white text-sm">ToutClear</button>
+            <button onClick={() => setShowQueueModal(false)} className="px-4 py-2 bg-brand-primary text-black font-semibold rounded-full text-sm">Fermer</button>
+          </div>
+        )}
       </Modal>
 
       {gamepadConnected && currentUser && (

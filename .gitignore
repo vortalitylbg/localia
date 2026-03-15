@@ -19,6 +19,9 @@ frontend/dist/
 .env
 .env.local
 
+# Website (separate repo)
+localify-web/
+
 # OS
 .DS_Store
 Thumbs.db
