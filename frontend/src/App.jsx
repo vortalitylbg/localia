@@ -165,6 +165,7 @@ function App() {
   const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
   const [trackToAdd, setTrackToAdd] = useState(null);
   const [userStats, setUserStats] = useState(null);
+  const [favoriteTracks, setFavoriteTracks] = useState([]);
   const [uploadFiles, setUploadFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const uploadInputRef = useRef(null);
@@ -299,7 +300,12 @@ function App() {
         if (data) {
           setPlaylists(data);
           const fav = data.find(p => p.name === 'Favorites');
-          if (fav) setFavoritesPlaylist(fav);
+          if (fav) {
+            setFavoritesPlaylist(fav);
+            apiFetch(`/playlists/${fav.id}/tracks`).then(r => r?.json()).then(tracks => {
+              if (tracks) setFavoriteTracks(tracks);
+            });
+          }
         }
       });
       
@@ -586,19 +592,51 @@ function App() {
   };
 
   const toggleFavorite = async (track) => {
-    if (!favoritesPlaylist) {
-      const res = await apiFetch('/playlists', { method: 'POST', body: JSON.stringify({ name: 'Favorites', userId: currentUser.id }) });
-      const newP = await res.json();
-      setPlaylists(prev => [...prev, newP]);
-      setFavoritesPlaylist(newP);
-      await apiFetch(`/playlists/${newP.id}/tracks`, { method: 'POST', body: JSON.stringify({ trackId: track.id }) });
+    console.log('toggleFavorite called', { track, favoritesPlaylist, currentUser });
+    if (!currentUser) {
+      console.log('No currentUser');
       return;
     }
-    const isFav = playlistTracks.some(t => t.id === track.id);
-    if (isFav) await apiFetch(`${favoritesPlaylist.id}/tracks/${encodeURIComponent(track.id)}`, { method: 'DELETE' });
-    else await apiFetch(`${favoritesPlaylist.id}/tracks`, { method: 'POST', body: JSON.stringify({ trackId: track.id }) });
-    const res = await apiFetch(`${favoritesPlaylist.id}/tracks`);
-    setPlaylistTracks(await res.json());
+    if (!favoritesPlaylist) {
+      console.log('Creating favorites playlist for user', currentUser.id);
+      try {
+        const res = await apiFetch('/playlists', { 
+          method: 'POST', 
+          body: JSON.stringify({ name: 'Favorites', userId: currentUser.id }) 
+        });
+        const newP = await res.json();
+        console.log('Created playlist', newP);
+        setPlaylists(prev => [...prev, newP]);
+        setFavoritesPlaylist(newP);
+        
+        const addRes = await apiFetch(`/playlists/${newP.id}/tracks`, { 
+          method: 'POST', 
+          body: JSON.stringify({ trackId: track.id }) 
+        });
+        console.log('Add to favorites response', addRes.status);
+        setFavoriteTracks([track]);
+      } catch (err) {
+        console.error('Error creating favorites:', err);
+      }
+      return;
+    }
+    const isFav = favoriteTracks.some(t => t.id === track.id);
+    console.log('isFav', isFav);
+    if (isFav) {
+      await apiFetch(`${favoritesPlaylist.id}/tracks/${encodeURIComponent(track.id)}`, { method: 'DELETE' });
+      setFavoriteTracks(prev => prev.filter(t => t.id !== track.id));
+    } else {
+      console.log('Adding to favorites playlist', favoritesPlaylist.id, 'track', track.id);
+      const res = await apiFetch(`${favoritesPlaylist.id}/tracks`, { 
+        method: 'POST', 
+        body: JSON.stringify({ trackId: track.id }) 
+      });
+      console.log('Add response', res.status);
+      const tracksRes = await apiFetch(`${favoritesPlaylist.id}/tracks`);
+      const tracks = await tracksRes.json();
+      console.log('Got tracks', tracks.length);
+      setFavoriteTracks(tracks);
+    }
   };
 
   const addToPlaylist = async (track) => {
@@ -1189,7 +1227,7 @@ function App() {
             <div><p className="text-white text-xs sm:text-sm uppercase">{t('playlists')}</p><h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white">{activePlaylist.name}</h1><p className="text-gray-400 text-sm sm:text-base">{playlistTracks.length} {t('songs')}</p></div>
           </div>
           <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-6"><button onClick={() => playlistTracks[0] && playTrack(playlistTracks[0], playlistTracks)} className="w-12 sm:w-14 h-12 sm:h-14 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-6 sm:w-7 h-6 sm:h-7 text-black ml-0.5 sm:ml-1" /></button><button onClick={() => { if (playlistTracks.length) { const s = [...playlistTracks].sort(() => Math.random() - 0.5); playTrack(s[0], s); }}} className="text-gray-400 hover:text-white hidden sm:block"><Shuffle className="w-5 sm:w-6 h-5 sm:h-6" /></button></div>
-          <div className="px-3 sm:px-6">{playlistTracks.map((t, i) => <div key={t.id} data-track-id={t.id} onClick={() => playTrack(t, playlistTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate hidden sm:block">{t.artist}</p></div><button onClick={(e) => { e.stopPropagation(); toggleFavorite(t); }} className="text-gray-400 hover:text-white flex-shrink-0"><Heart className={clsx("w-4 sm:w-5 h-4 sm:h-5", playlistTracks.some(x => x.id === t.id) ? 'fill-red-500 text-red-500' : '')} /></button><span className="text-gray-500 text-xs sm:text-sm hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
+          <div className="px-3 sm:px-6">{playlistTracks.map((t, i) => <div key={t.id} data-track-id={t.id} onClick={() => playTrack(t, playlistTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}><span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span><div className="flex-1 min-w-0"><p className={clsx("truncate text-sm sm:text-base", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs sm:text-sm truncate hidden sm:block">{t.artist}</p></div><button onClick={(e) => { e.stopPropagation(); toggleFavorite(t); }} className="text-gray-400 hover:text-white flex-shrink-0"><Heart className={clsx("w-4 sm:w-5 h-4 sm:h-5", favoriteTracks.some(x => x.id === t.id) ? 'fill-red-500 text-red-500' : '')} /></button><span className="text-gray-500 text-xs sm:text-sm hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div>
         </div>
       );
     }
@@ -1475,6 +1513,56 @@ function App() {
           </div>
         )}
 
+        {view === 'favorites' && (
+          <div className="px-3 sm:px-6 pb-8">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-16 h-16 sm:w-24 sm:h-24 bg-gradient-to-br from-red-500 to-pink-700 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Heart className="w-8 h-8 sm:w-12 sm:h-12 text-white fill-white" />
+              </div>
+              <div>
+                <p className="text-gray-400 text-sm uppercase tracking-wider">Playlist</p>
+                <h1 className="text-2xl sm:text-3xl font-bold text-white">{t('favorites') || 'Favorites'}</h1>
+                <p className="text-gray-400 text-sm">{favoriteTracks.length} {t('songs') || 'songs'}</p>
+              </div>
+            </div>
+            {favoriteTracks.length > 0 ? (
+              <>
+                <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
+                  <button onClick={() => favoriteTracks[0] && playTrack(favoriteTracks[0], favoriteTracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center">
+                    <Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" />
+                  </button>
+                </div>
+                <div className="space-y-0.5 sm:space-y-1">
+                  {favoriteTracks.map((t, i) => (
+                    <div key={t.id} data-track-id={t.id} onClick={() => playTrack(t, favoriteTracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '')}>
+                      <span className="w-5 sm:w-8 text-center text-gray-500 text-xs sm:text-sm">{i+1}</span>
+                      <div className="flex items-center gap-2 sm:gap-4 flex-1">
+                        <div className="flex items-center gap-2 sm:gap-4 flex-1">
+                          {t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}
+                          <div className="flex-1 min-w-0">
+                            <p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p>
+                            <p className="text-gray-400 text-xs sm:text-sm truncate hidden sm:block">{t.artist}</p>
+                          </div>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); toggleFavorite(t); }} className="text-gray-400 hover:text-white flex-shrink-0">
+                          <Heart className={clsx("w-4 sm:w-5 h-4 sm:h-5", favoriteTracks.some(x => x.id === t.id) ? 'fill-red-500 text-red-500' : '')} />
+                        </button>
+                        <span className="text-gray-500 text-xs sm:text-sm hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-12">
+                <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                <p className="text-gray-400 text-lg mb-2">No favorites yet</p>
+                <p className="text-gray-500 text-sm">Click the heart icon on any track to add it to your favorites</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {isLibrary && (
           <div className="px-3 sm:px-6 pb-8">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 py-3 sm:py-4"><h1 className="text-2xl sm:text-3xl font-bold text-white">{t('library')}</h1><button onClick={() => setShowPlaylistModal(true)} className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/10 rounded-full text-white text-sm self-start"><Plus className="w-4 h-4" />{t('createPlaylist')}</button></div>
@@ -1484,7 +1572,7 @@ function App() {
               <button {...getFocusProps('library-tabs', 2)} onClick={() => { setView('library-albums'); setFocusCategory('library-tabs'); setFocusIndex(2); }} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-albums' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('albums')}</button>
               <button {...getFocusProps('library-tabs', 3)} onClick={() => { setView('library-artists'); setFocusCategory('library-tabs'); setFocusIndex(3); }} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
             </div>
-            {view === 'library' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{playlists.map((p, i) => <div {...getFocusProps('playlists', i)} key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'playlists' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3"><ListMusic className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" /></div><p className="text-white text-xs sm:text-sm truncate">{p.name}</p></div>)}</div>}
+            {view === 'library' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{playlists.filter(p => p.name !== 'Favorites').map((p, i) => <div {...getFocusProps('playlists', i)} key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'playlists' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3"><ListMusic className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" /></div><p className="text-white text-xs sm:text-sm truncate">{p.name}</p></div>)}</div>}
             {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} data-track-id={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="flex items-center gap-2 sm:gap-4 flex-1"><div className="flex items-center gap-2 sm:gap-4 flex-1">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div><TrackMenu track={t} onAddToPlaylist={addToPlaylist} onAddToQueue={addToQueue} onDelete={() => {}} onTrackDelete={(deletedTrack) => {
               // Refresh tracks list
               apiFetch('/tracks').then(r => r?.json()).then(newTracks => {
@@ -1561,10 +1649,13 @@ function App() {
               <button {...getFocusProps('sidebar', 1)} onClick={() => { setView('search'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(1); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'search' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 1 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><SearchIcon className="w-6 h-6" /><span className="font-medium">{t('search')}</span></button>
               <button {...getFocusProps('sidebar', 2)} onClick={() => { setView('library'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(2); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'library' || view.startsWith('library') ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 2 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><Library className="w-6 h-6" /><span className="font-medium">{t('library')}</span></button>
               <button {...getFocusProps('sidebar', 3)} onClick={() => { setView('stats'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(3); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'stats' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 3 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><BarChart2 className="w-6 h-6" /><span className="font-medium">{t('stats') || 'Statistics'}</span></button>
+              {favoritesPlaylist && (
+                <button {...getFocusProps('sidebar', 4)} onClick={() => { apiFetch(`/playlists/${favoritesPlaylist.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('favorites'); setShowMobileMenu(false); setFocusCategory('sidebar'); setFocusIndex(4); }} className={clsx("w-full flex items-center gap-4 px-4 py-3 rounded-lg transition-colors relative", view === 'favorites' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5', focusCategory === 'sidebar' && focusIndex === 4 && gamepadConnected && 'ring-2 ring-brand-primary ring-inset')}><Heart className="w-6 h-6" /><span className="font-medium">{t('favorites') || 'Favorites'}</span></button>
+              )}
             </nav>
             <div className="mt-6 md:mt-8">
               <div className="flex items-center justify-between px-4 mb-3"><span className="text-gray-400 text-sm font-medium uppercase">{t('playlists')}</span><button onClick={() => setShowPlaylistModal(true)} className="text-gray-400 hover:text-white"><Plus className="w-5 h-5" /></button></div>
-              <div className="space-y-1 max-h-48 md:max-h-64 overflow-y-auto">{playlists.map(p => <button key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); setShowMobileMenu(false); }} className="w-full text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 text-sm truncate">{p.name}</button>)}</div>
+              <div className="space-y-1 max-h-48 md:max-h-64 overflow-y-auto">{playlists.filter(p => p.name !== 'Favorites').map(p => <button key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); setShowMobileMenu(false); }} className="w-full text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 text-sm truncate">{p.name}</button>)}</div>
             </div>
           </div>
         </aside>
@@ -1575,7 +1666,7 @@ function App() {
           <header className="flex items-center justify-between p-3 md:p-4 gap-2">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <button onClick={() => setShowMobileMenu(true)} className="md:hidden p-2 text-gray-400 hover:text-white flex-shrink-0"><Menu className="w-6 h-6" /></button>
-              {(view !== 'home' && view !== 'search' && view !== 'library' && !view.startsWith('library') && view !== 'settings' && view !== 'stats') && <button onClick={() => { setView('home'); setSelectedAlbum(null); setSelectedArtist(null); setActivePlaylist(null); }} className="p-2 bg-black/50 rounded-full hover:scale-110 flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>}
+              {(view !== 'home' && view !== 'search' && view !== 'library' && !view.startsWith('library') && view !== 'settings' && view !== 'stats' && view !== 'favorites') && <button onClick={() => { setView('home'); setSelectedAlbum(null); setSelectedArtist(null); setActivePlaylist(null); }} className="p-2 bg-black/50 rounded-full hover:scale-110 flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>}
               <div className="relative w-full max-w-xs md:max-w-md lg:max-w-80 hidden sm:block"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); if (view !== 'search') setView('search'); }} placeholder={t('searchPlaceholder')} className="w-full bg-white/10 border border-transparent rounded-full py-2 pl-10 pr-4 text-white placeholder-gray-400 focus:outline-none focus:bg-white/20 text-sm" /></div>
             </div>
             <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
@@ -1621,8 +1712,8 @@ function App() {
                 <p className="text-white font-medium truncate text-sm">{currentTrack.title}</p>
                 <p className="text-gray-400 text-xs truncate">{currentTrack.artist}</p>
               </div>
-              <button onClick={() => toggleFavorite(currentTrack)} className="text-gray-400 hover:text-white transition-colors flex-shrink-0 hidden sm:block">
-                <Heart className={clsx("w-5 h-5", favoritesPlaylist && playlistTracks.some(t => t.id === currentTrack?.id) ? 'fill-red-500 text-red-500' : '')} />
+              <button onClick={(e) => { e.stopPropagation(); console.log('Heart clicked', currentTrack); toggleFavorite(currentTrack); }} className="text-gray-400 hover:text-white transition-colors flex-shrink-0 p-2">
+                <Heart className={clsx("w-5 h-5", favoritesPlaylist && favoriteTracks.some(t => t.id === currentTrack?.id) ? 'fill-red-500 text-red-500' : '')} />
               </button>
             </div>
           )}
@@ -1701,10 +1792,10 @@ function App() {
 
       <Modal isOpen={showAddToPlaylistModal} onClose={() => { setShowAddToPlaylistModal(false); setTrackToAdd(null); }} title="Add to playlist" size="sm">
         <div className="space-y-2">
-          {playlists.length === 0 ? (
+          {playlists.filter(p => p.name !== 'Favorites').length === 0 ? (
             <p className="text-gray-400 text-center py-4">No playlists yet. Create one first!</p>
           ) : (
-            playlists.map(playlist => (
+            playlists.filter(p => p.name !== 'Favorites').map(playlist => (
               <button
                 key={playlist.id}
                 onClick={() => handleAddToPlaylistConfirm(playlist.id)}
