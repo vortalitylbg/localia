@@ -204,25 +204,44 @@ async function scanMusic() {
     const tracks = [];
     for (const file of musicFiles) {
         const filePath = path.join(MUSIC_DIR, file);
+        const trackId = Buffer.from(file).toString('base64');
         try {
             const metadata = await mm.parseFile(filePath);
-            tracks.push({
-                id: Buffer.from(file).toString('base64'),
+            const trackData = {
+                id: trackId,
                 title: metadata.common.title || file,
                 artist: metadata.common.artist || 'Unknown Artist',
                 album: metadata.common.album || 'Unknown Album',
                 duration: metadata.format.duration,
                 fileName: file,
                 hasPicture: !!metadata.common.picture && metadata.common.picture.length > 0
-            });
+            };
+            tracks.push(trackData);
+            
+            const existing = db.prepare('SELECT id FROM tracks WHERE id = ?').get(trackId);
+            if (!existing) {
+                db.prepare(`
+                    INSERT INTO tracks (id, title, artist, album, fileName, duration, hasPicture, playCount)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                `).run(trackId, trackData.title, trackData.artist, trackData.album, trackData.fileName, trackData.duration ? Math.floor(trackData.duration) : 0, trackData.hasPicture ? 1 : 0);
+            }
         } catch (err) {
-            tracks.push({
-                id: Buffer.from(file).toString('base64'),
+            const trackData = {
+                id: trackId,
                 title: file,
                 artist: 'Unknown Artist',
                 album: 'Unknown Album',
                 fileName: file
-            });
+            };
+            tracks.push(trackData);
+            
+            const existing = db.prepare('SELECT id FROM tracks WHERE id = ?').get(trackId);
+            if (!existing) {
+                db.prepare(`
+                    INSERT INTO tracks (id, title, artist, album, fileName, duration, hasPicture, playCount)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                `).run(trackId, trackData.title, trackData.artist, trackData.album, trackData.fileName, 0, 0);
+            }
         }
     }
     return tracks;
@@ -424,7 +443,7 @@ app.post('/api/playlists/:id/tracks', authenticate, (req, res) => {
     }
 });
 
-app.delete('/api/tracks/:fileName', authenticate, requireAdmin, (req, res) => {
+app.delete('/api/tracks/:fileName', authenticate, (req, res) => {
     const fileName = req.params.fileName;
     const filePath = path.join(MUSIC_DIR, fileName);
     
@@ -433,9 +452,15 @@ app.delete('/api/tracks/:fileName', authenticate, requireAdmin, (req, res) => {
     }
     
     try {
+        // Remove the track from all playlists first
+        db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(Buffer.from(fileName).toString('base64'));
+        
+        // Delete the file
         fs.unlinkSync(filePath);
-        res.json({ success: true });
+        
+        res.json({ success: true, message: "Track deleted successfully" });
     } catch (e) {
+        console.error('Delete error:', e);
         res.status(500).json({ error: "Could not delete file" });
     }
 });
@@ -455,6 +480,56 @@ app.get('/api/tracks', optionalAuth, async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
+});
+
+// Routes pour le suivi des écoutes
+app.post('/api/track-plays', authenticate, (req, res) => {
+  const { trackId, userId } = req.body;
+  
+  // Enregistrer l'écoute
+  const stmt = db.prepare('INSERT INTO track_plays (trackId, userId) VALUES (?, ?)');
+  stmt.run(trackId, userId);
+  
+  res.json({ success: true });
+});
+
+// Routes pour les recommandations - tracks les plus écoutés globalement (indépendamment de l'utilisateur)
+app.get('/api/recommendations/:userId', authenticate, async (req, res) => {
+  const { userId } = req.params;
+  
+  // Récupérer tous les tracks disponibles (depuis les fichiers)
+  const allTracks = await scanMusic();
+  const trackIdToFileName = {};
+  allTracks.forEach(t => { trackIdToFileName[t.id] = t.fileName; });
+  
+  // Tracks les plus écoutés globalement (tous utilisateurs confondus)
+  const globalPopular = db.prepare(`
+    SELECT tp.trackId, COUNT(tp.id) as totalPlays
+    FROM track_plays tp
+    GROUP BY tp.trackId
+    ORDER BY totalPlays DESC
+    LIMIT 10
+  `).all();
+  
+  // Mapper les results aux tracks
+  const recommendedTracks = globalPopular
+    .map(item => {
+      const fileName = trackIdToFileName[item.trackId];
+      return allTracks.find(t => t.fileName === fileName);
+    })
+    .filter(t => t !== undefined);
+  
+  // Si pas assez de données, compléter avec des tracks aléatoires
+  if (recommendedTracks.length < 6) {
+    const remaining = allTracks.filter(t => !recommendedTracks.some(rt => rt.id === t.id));
+    const shuffled = remaining.sort(() => Math.random() - 0.5);
+    for (const track of shuffled) {
+      if (recommendedTracks.length >= 6) break;
+      recommendedTracks.push(track);
+    }
+  }
+  
+  res.json(recommendedTracks.slice(0, 6));
 });
 
 app.get('/api/stream/:fileName', optionalAuth, (req, res) => {

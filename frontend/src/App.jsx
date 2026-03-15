@@ -42,6 +42,72 @@ const apiFetch = async (url, options = {}) => {
   return res;
 };
 
+function TrackMenu({ track, onAddToPlaylist, onDelete, className = '', onTrackDelete }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleDelete = async () => {
+    if (window.confirm(`Are you sure you want to delete "${track.title}"? This action cannot be undone.`)) {
+      try {
+        const res = await apiFetch(`/tracks/${encodeURIComponent(track.fileName)}`, { method: 'DELETE' });
+        if (res.ok) {
+          // Call parent handler to refresh tracks and handle playback
+          if (onTrackDelete) {
+            onTrackDelete(track);
+          }
+        } else {
+          const errorData = await res.json();
+          alert(errorData.error || 'Failed to delete track');
+        }
+      } catch (err) {
+        console.error('Delete failed:', err);
+        alert('Failed to delete track');
+      }
+    }
+  };
+
+  return (
+    <div className={`relative ${className}`} ref={menuRef}>
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10 transition-colors"
+        title="Track options"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
+      </button>
+      
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-64 bg-[#181818] border border-white/10 rounded-lg shadow-xl z-50 py-2">
+          <button 
+            onClick={() => { setIsOpen(false); onAddToPlaylist(track); }}
+            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-3"
+          >
+            <Plus className="w-4 h-4" />
+            Add to playlist
+          </button>
+          <button 
+            onClick={() => { setIsOpen(false); handleDelete(); }}
+            className="w-full text-left px-4 py-2 text-red-400 hover:bg-red-500/10 flex items-center gap-3"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            Delete from server
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Modal({ isOpen, onClose, title, children, size = 'md' }) {
   if (!isOpen) return null;
   const sizeClasses = { sm: 'max-w-sm sm:max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
@@ -88,6 +154,8 @@ function App() {
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
+  const [trackToAdd, setTrackToAdd] = useState(null);
   const [uploadFiles, setUploadFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const uploadInputRef = useRef(null);
@@ -112,6 +180,7 @@ function App() {
   const [favoritesPlaylist, setFavoritesPlaylist] = useState(null);
   const [currentPlayList, setCurrentPlayList] = useState([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [focusIndex, setFocusIndex] = useState(0);
   const [focusCategory, setFocusCategory] = useState('profile');
@@ -186,6 +255,11 @@ function App() {
           const fav = data.find(p => p.name === 'Favorites');
           if (fav) setFavoritesPlaylist(fav);
         }
+      });
+      
+      // Charger les recommandations
+      apiFetch(`/recommendations/${currentUser.id}`).then(r => r?.json()).then(data => {
+        if (data) setRecommendations(data);
       });
     }
   }, [currentUser]);
@@ -378,6 +452,17 @@ function App() {
     audioRef.current.src = getStreamUrl(track.fileName);
     audioRef.current.play().catch(() => {});
     setRecentlyPlayed(prev => [track, ...prev.filter(t => t.id !== track.id)].slice(0, 20));
+    
+    // Enregistrer l'écoute
+    if (currentUser) {
+      apiFetch('/track-plays', { 
+        method: 'POST', 
+        body: JSON.stringify({ 
+          trackId: track.id, 
+          userId: currentUser.id 
+        }) 
+      }).catch(err => console.error('Failed to record play:', err));
+    }
   };
 
   const handleNext = () => {
@@ -411,6 +496,23 @@ function App() {
     else await apiFetch(`${favoritesPlaylist.id}/tracks`, { method: 'POST', body: JSON.stringify({ trackId: track.id }) });
     const res = await apiFetch(`${favoritesPlaylist.id}/tracks`);
     setPlaylistTracks(await res.json());
+  };
+
+  const addToPlaylist = async (track) => {
+    setTrackToAdd(track);
+    setShowAddToPlaylistModal(true);
+  };
+
+  const handleAddToPlaylistConfirm = async (playlistId) => {
+    if (!trackToAdd || !playlistId) return;
+    
+    try {
+      await apiFetch(`/playlists/${playlistId}/tracks`, { method: 'POST', body: JSON.stringify({ trackId: trackToAdd.id }) });
+      setShowAddToPlaylistModal(false);
+      setTrackToAdd(null);
+    } catch (err) {
+      console.error('Failed to add to playlist:', err);
+    }
   };
 
   const createPlaylist = () => {
@@ -518,6 +620,10 @@ function App() {
           setConsoleFocus(f => ({ ...f, row: Math.max(0, f.row - 1) }));
         } else if (direction === 'down') {
           setConsoleFocus(f => ({ ...f, row: Math.min(maxItems - 1, f.row + 1) }));
+        } else if (direction === 'left') {
+          setConsoleFocus(f => ({ ...f, col: Math.max(0, f.col - 1) }));
+        } else if (direction === 'right') {
+          setConsoleFocus(f => ({ ...f, col: Math.min(3, f.col + 1) }));
         }
         return;
       }
@@ -588,13 +694,34 @@ function App() {
         return;
       }
 
-      if (focusCategory === 'sidebar') { const navItems = ['home', 'search', 'library']; if (focusIndex < navItems.length) setView(navItems[focusIndex]); }
+      if (focusCategory === 'sidebar') { 
+        const navItems = ['home', 'search', 'library']; 
+        if (focusIndex < navItems.length) {
+          setView(navItems[focusIndex]);
+          if (navItems[focusIndex] === 'library') {
+            setFocusCategory('library-tabs');
+            setFocusIndex(0);
+          }
+        }
+      }
       else if (focusCategory === 'tracks' && tracks[focusIndex]) playTrack(tracks[focusIndex], tracks);
       else if (focusCategory === 'recently' && recentlyPlayed[focusIndex]) playTrack(recentlyPlayed[focusIndex]);
       else if (focusCategory === 'albums') { const albums = getUniqueAlbums(); if (albums[focusIndex]) { setSelectedAlbum(albums[focusIndex]); setView('album'); } }
       else if (focusCategory === 'artists') { const artists = getUniqueArtists(); if (artists[focusIndex]) { setSelectedArtist(artists[focusIndex]); setView('artist'); } }
       else if (focusCategory === 'playlists' && playlists[focusIndex]) { const p = playlists[focusIndex]; setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }
-      else if (focusCategory === 'library-tabs') { const tabs = ['library', 'library-songs', 'library-albums', 'library-artists']; if (tabs[focusIndex]) { setView(tabs[focusIndex]); setTimeout(() => { if (tabs[focusIndex] === 'library') setFocusCategory('playlists'); else if (tabs[focusIndex] === 'library-songs') setFocusCategory('tracks'); else if (tabs[focusIndex] === 'library-albums') setFocusCategory('albums'); else if (tabs[focusIndex] === 'library-artists') setFocusCategory('artists'); setFocusIndex(0); }, 50); } }
+      else if (focusCategory === 'library-tabs') { 
+        const tabs = ['library', 'library-songs', 'library-albums', 'library-artists']; 
+        if (tabs[focusIndex]) { 
+          setView(tabs[focusIndex]); 
+          setTimeout(() => { 
+            if (tabs[focusIndex] === 'library') setFocusCategory('playlists'); 
+            else if (tabs[focusIndex] === 'library-songs') setFocusCategory('tracks'); 
+            else if (tabs[focusIndex] === 'library-albums') setFocusCategory('albums'); 
+            else if (tabs[focusIndex] === 'library-artists') setFocusCategory('artists'); 
+            setFocusIndex(0); 
+          }, 50); 
+        } 
+      }
     },
     onBack: () => {
       if (consoleMode) {
@@ -637,24 +764,24 @@ function App() {
     if (consoleView === 'home') {
       items = [
         { type: 'category', label: 'Playlists', icon: 'list' },
-        ...playlists.slice(0, 6).map(p => ({ 
+        ...playlists.slice(0, 8).map(p => ({ 
           type: 'playlist', 
           data: p,
           label: p.name,
           cover: null,
           action: () => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setConsoleView('playlist'); setConsoleFocus({ row: 0, col: 0 }); }
         })),
-        { type: 'category', label: 'Recently Played', icon: 'clock' },
-        ...recentlyPlayed.slice(0, 6).map(t => ({ 
+        { type: 'category', label: 'Recommandations', icon: 'heart' },
+        ...(recommendations.length > 0 ? recommendations : tracks.slice(0, 8)).map(t => ({ 
           type: 'track', 
           data: t,
           label: t.title,
           sublabel: t.artist,
           cover: t.hasPicture ? getCoverUrl(t.fileName) : null,
-          action: () => playTrack(t)
+          action: () => playTrack(t, recommendations.length > 0 ? recommendations : tracks)
         })),
         { type: 'category', label: 'Albums', icon: 'disc' },
-        ...getUniqueAlbums().slice(0, 6).map(a => ({ 
+        ...getUniqueAlbums().slice(0, 8).map(a => ({ 
           type: 'album', 
           data: a,
           label: a.name,
@@ -663,7 +790,7 @@ function App() {
           action: () => { setSelectedAlbum(a); setConsoleView('album'); setConsoleFocus({ row: 0, col: 0 }); }
         })),
         { type: 'category', label: 'Artists', icon: 'user' },
-        ...getUniqueArtists().slice(0, 6).map(a => ({ 
+        ...getUniqueArtists().slice(0, 8).map(a => ({ 
           type: 'artist', 
           data: a,
           label: a.name,
@@ -673,7 +800,7 @@ function App() {
       ];
     } else if (consoleView === 'playlist' || consoleView === 'album') {
       const albumName = currentTrack?.album;
-      const albumTracks = albumName ? getAlbumTracks(albumName) : tracks.slice(0, 50);
+      const albumTracks = albumName ? getAlbumTracks(albumName) : tracks.slice(0, 20);
       items = albumTracks.map(t => ({
         type: 'track',
         data: t,
@@ -682,11 +809,11 @@ function App() {
         cover: t.hasPicture ? getCoverUrl(t.fileName) : null,
         action: () => playTrack(t, albumTracks)
       }));
-    } else if (consoleView === 'artist' && currentTrack) {
-      const artistName = currentTrack.artist;
+    } else if (consoleView === 'artist') {
+      const artistName = currentTrack?.artist;
       items = [
         { type: 'category', label: 'Songs', icon: 'music' },
-        ...getArtistTracks(artistName).slice(0, 30).map(t => ({
+        ...getArtistTracks(artistName).slice(0, 12).map(t => ({
           type: 'track',
           data: t,
           label: t.title,
@@ -696,7 +823,7 @@ function App() {
         })),
         ...(getArtistAlbums(artistName).length > 0 ? [
           { type: 'category', label: 'Albums', icon: 'disc' },
-          ...getArtistAlbums(artistName).slice(0, 6).map(a => ({
+          ...getArtistAlbums(artistName).slice(0, 8).map(a => ({
             type: 'album',
             data: a,
             label: a.name,
@@ -705,10 +832,52 @@ function App() {
           }))
         ] : [])
       ];
+    } else if (consoleView === 'library') {
+      items = [
+        { type: 'category', label: 'Songs', icon: 'music' },
+        ...tracks.slice(0, 12).map(t => ({
+          type: 'track',
+          data: t,
+          label: t.title,
+          sublabel: t.artist,
+          cover: t.hasPicture ? getCoverUrl(t.fileName) : null,
+          action: () => playTrack(t, tracks)
+        })),
+        { type: 'category', label: 'Albums', icon: 'disc' },
+        ...getUniqueAlbums().slice(0, 8).map(a => ({
+          type: 'album',
+          data: a,
+          label: a.name,
+          sublabel: a.artist,
+          cover: a.cover ? getCoverUrl(a.cover.fileName) : null,
+          action: () => { setSelectedAlbum(a); setConsoleView('album'); setConsoleFocus({ row: 0, col: 0 }); }
+        })),
+        { type: 'category', label: 'Artists', icon: 'user' },
+        ...getUniqueArtists().slice(0, 8).map(a => ({
+          type: 'artist',
+          data: a,
+          label: a.name,
+          cover: a.cover ? getCoverUrl(a.cover.fileName) : null,
+          action: () => { setSelectedArtist(a); setConsoleView('artist'); setConsoleFocus({ row: 0, col: 0 }); }
+        })),
+      ];
+    } else if (consoleView === 'search') {
+      const searchResults = tracks.filter(t => 
+        t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        t.artist.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      items = searchResults.slice(0, 20).map(t => ({
+        type: 'track',
+        data: t,
+        label: t.title,
+        sublabel: t.artist,
+        cover: t.hasPicture ? getCoverUrl(t.fileName) : null,
+        action: () => playTrack(t)
+      }));
     }
     
     setFlatItems(items);
-  }, [consoleView, playlists, recentlyPlayed, tracks, currentTrack]);
+  }, [consoleView, playlists, recentlyPlayed, tracks, currentTrack, searchQuery]);
 
   const applyPreset = (key) => {
     const preset = equalizerPresets[key];
@@ -928,11 +1097,120 @@ function App() {
       <div className="pb-8">
         {view === 'home' && (
           <>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-6 px-3 sm:px-6">{t('goodEvening')}</h1>
-            {recentlyPlayed.length > 0 && <div className="mb-6 sm:mb-8 px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">Recently played</h2><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">{recentlyPlayed.slice(0,6).map((t, i) => <div key={t.id} {...getFocusProps('recently', i)} onClick={() => playTrack(t)} className={clsx("flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer", focusCategory === 'recently' && focusIndex === i && 'ring-2 ring-brand-primary')}>{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-10 sm:w-12 h-10 sm:h-12 bg-gray-800 rounded object-cover" /> : <Disc className="w-5 sm:w-6 h-5 sm:h-6 text-gray-600 m-auto" />}<p className="text-white text-xs sm:text-sm truncate flex-1">{t.title}</p></div>)}</div></div>}
-            <div className="mb-6 sm:mb-8 px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('songs')}</h2><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.slice(0, 20).map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}>{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></div>
-            <div className="px-3 sm:px-6"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('albums')}</h2><div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueAlbums().slice(0, 12).map((a, i) => <div {...getFocusProps('albums', i)} key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'albums' && focusIndex === i && 'ring-2 ring-brand-primary')}>{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3 object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 mx-auto" />}<p className="text-white text-xs sm:text-sm truncate font-medium">{a.name}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{a.artist}</p></div>)}</div></div>
-            <div className="px-3 sm:px-6 mt-6 sm:mt-8"><h2 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">{t('artists')}</h2><div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueArtists().slice(0, 12).map((a, i) => <div {...getFocusProps('artists', i)} key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'artists' && focusIndex === i && 'ring-2 ring-brand-primary')}>{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3 mx-auto w-16 sm:w-20 md:w-24 lg:w-28 object-cover" /> : <User className="w-8 sm:w-10 md:w-12 h-8 sm:h-10 md:h-12 text-gray-600 mx-auto" />}<p className="text-white text-xs sm:text-sm truncate text-center">{a.name}</p></div>)}</div></div>
+            <div className="px-3 sm:px-6">
+              {/* Recommended for you - Grille de 6 */}
+              <div className="mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl sm:text-2xl font-bold text-white">Recommandations pour toi</h2>
+                  {(recommendations.length > 0 || tracks.length > 0) && (
+                    <button onClick={() => (recommendations[0] || tracks[0]) && playTrack(recommendations[0] || tracks[0], recommendations.length > 0 ? recommendations : tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center hover:scale-105 transition-transform">
+                      <Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" />
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+                  {(recommendations.length > 0 ? recommendations : tracks.slice(0, 6)).map((t, i) => (
+                    <div 
+                      key={t.id} 
+                      {...getFocusProps('recommendations', i)}
+                      onClick={() => playTrack(t, recommendations.length > 0 ? recommendations : tracks)}
+                      className={clsx(
+                        "group bg-[#181818] hover:bg-[#282828] rounded-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-black/30",
+                        currentTrack?.id === t.id ? 'ring-2 ring-brand-primary' : '',
+                        focusCategory === 'recommendations' && focusIndex === i && 'ring-2 ring-brand-primary'
+                      )}
+                    >
+                      <div className="relative aspect-square">
+                        {t.hasPicture ? (
+                          <img src={getCoverUrl(t.fileName)} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
+                            <Disc className="w-12 sm:w-16 h-12 sm:h-16 text-gray-500" />
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center">
+                          <button className="w-12 h-12 bg-brand-primary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 scale-50 group-hover:scale-100 transition-all duration-300 shadow-lg">
+                            <Play className="w-6 h-6 text-black ml-1" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="p-2 sm:p-3">
+                        <p className={clsx("text-white text-sm font-medium truncate", currentTrack?.id === t.id && 'text-brand-primary')}>
+                          {t.title}
+                        </p>
+                        <p className="text-gray-400 text-xs truncate mt-0.5">{t.artist}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Albums Section */}
+              <div className="mb-8">
+                <h2 className="text-lg sm:text-xl font-bold text-white mb-4">{t('albums')}</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
+                  {getUniqueAlbums().slice(0, 12).map((a, i) => (
+                    <div 
+                      {...getFocusProps('albums', i)} 
+                      key={a.name} 
+                      onClick={() => { setSelectedAlbum(a); setView('album'); }} 
+                      className={clsx(
+                        "group p-3 sm:p-4 bg-[#181818] hover:bg-[#252532] rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02]",
+                        focusCategory === 'albums' && focusIndex === i && 'ring-2 ring-brand-primary'
+                      )}
+                    >
+                      <div className="relative mb-3 sm:mb-4">
+                        {a.cover ? (
+                          <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded-lg object-cover shadow-lg group-hover:shadow-xl transition-shadow duration-300" />
+                        ) : (
+                          <div className="w-full aspect-square bg-gradient-to-br from-gray-700 to-gray-800 rounded-lg flex items-center justify-center">
+                            <Disc className="w-12 sm:w-16 h-12 sm:h-16 text-gray-600" />
+                          </div>
+                        )}
+                        <button 
+                          className="absolute bottom-2 right-2 w-10 h-10 sm:w-12 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 shadow-lg hover:scale-105"
+                          onClick={(e) => { e.stopPropagation(); const tracks = getAlbumTracks(a.name); if (tracks[0]) playTrack(tracks[0], tracks); }}
+                        >
+                          <Play className="w-5 h-5 sm:w-6 sm:h-6 text-black ml-0.5 sm:ml-1" />
+                        </button>
+                      </div>
+                      <p className="text-white font-medium text-sm sm:text-base truncate">{a.name}</p>
+                      <p className="text-gray-400 text-xs sm:text-sm truncate mt-1">{a.artist}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Artists Section */}
+              <div className="mb-8">
+                <h2 className="text-lg sm:text-xl font-bold text-white mb-4">{t('artists')}</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
+                  {getUniqueArtists().slice(0, 12).map((a, i) => (
+                    <div 
+                      {...getFocusProps('artists', i)} 
+                      key={a.name} 
+                      onClick={() => { setSelectedArtist(a); setView('artist'); }} 
+                      className={clsx(
+                        "group p-3 sm:p-4 bg-[#181818] hover:bg-[#252532] rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02]",
+                        focusCategory === 'artists' && focusIndex === i && 'ring-2 ring-brand-primary'
+                      )}
+                    >
+                      <div className="relative mb-3 sm:mb-4 flex justify-center">
+                        {a.cover ? (
+                          <img src={getCoverUrl(a.cover.fileName)} className="w-24 sm:w-32 md:w-36 lg:w-40 aspect-square bg-gray-800 rounded-full object-cover shadow-lg group-hover:shadow-xl transition-shadow duration-300" />
+                        ) : (
+                          <div className="w-24 sm:w-32 md:w-36 lg:w-40 aspect-square bg-gradient-to-br from-gray-700 to-gray-800 rounded-full flex items-center justify-center">
+                            <User className="w-12 sm:w-16 h-12 sm:h-16 text-gray-600" />
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-white font-medium text-sm sm:text-base truncate text-center">{a.name}</p>
+                      <p className="text-gray-400 text-xs sm:text-sm truncate text-center mt-1">Artist</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </>
         )}
 
@@ -953,9 +1231,48 @@ function App() {
               <button {...getFocusProps('library-tabs', 3)} onClick={() => { setView('library-artists'); setFocusCategory('library-tabs'); setFocusIndex(3); }} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap", view === 'library-artists' ? 'bg-white text-black' : 'bg-white/10 text-white')}>{t('artists')}</button>
             </div>
             {view === 'library' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{playlists.map((p, i) => <div {...getFocusProps('playlists', i)} key={p.id} onClick={() => { setActivePlaylist(p); apiFetch(`/playlists/${p.id}/tracks`).then(r => r?.json()).then(d => { if (d) { setPlaylistTracks(d); setCurrentPlayList(d); } }); setView('playlist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'playlists' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3"><ListMusic className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 m-auto" /></div><p className="text-white text-xs sm:text-sm truncate">{p.name}</p></div>)}</div>}
-            {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}>{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div>)}</div></>}
-            {view === 'library-albums' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueAlbums().map((a, i) => <div {...getFocusProps('albums', i)} key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'albums' && focusIndex === i && 'ring-2 ring-brand-primary')}>{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded mb-2 sm:mb-3 object-cover" /> : <Disc className="w-8 sm:w-12 h-8 sm:h-12 text-gray-600 mx-auto" />}<p className="text-white text-xs sm:text-sm truncate">{a.name}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{a.artist}</p></div>)}</div>}
-            {view === 'library-artists' && <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">{getUniqueArtists().map((a, i) => <div {...getFocusProps('artists', i)} key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className={clsx("p-2 sm:p-3 bg-[#181818] hover:bg-white/10 rounded-lg cursor-pointer", focusCategory === 'artists' && focusIndex === i && 'ring-2 ring-brand-primary')}>{a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded-full mb-2 sm:mb-3 mx-auto w-16 sm:w-20 md:w-24 lg:w-28 object-cover" /> : <User className="w-8 sm:w-10 md:w-12 h-8 sm:h-10 md:h-12 text-gray-600 mx-auto" />}<p className="text-white text-xs sm:text-sm truncate text-center">{a.name}</p></div>)}</div>}
+            {view === 'library-songs' && <><div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4"><button onClick={() => tracks[0] && playTrack(tracks[0], tracks)} className="w-10 sm:w-12 h-10 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center"><Play className="w-5 sm:w-6 h-5 sm:h-6 text-black ml-0.5 sm:ml-1" /></button></div><div className="space-y-0.5 sm:space-y-1">{tracks.map((t, i) => <div {...getFocusProps('tracks', i)} key={t.id} onClick={() => playTrack(t, tracks)} className={clsx("flex items-center gap-2 sm:gap-4 py-1.5 sm:py-2 px-2 sm:px-3 rounded-md hover:bg-white/5 cursor-pointer", currentTrack?.id === t.id ? 'bg-white/10' : '', focusCategory === 'tracks' && focusIndex === i && 'ring-2 ring-brand-primary')}><div className="flex items-center gap-2 sm:gap-4 flex-1"><div className="flex items-center gap-2 sm:gap-4 flex-1">{t.hasPicture ? <img src={getCoverUrl(t.fileName)} className="w-8 sm:w-10 h-8 sm:h-10 bg-gray-800 rounded object-cover" /> : <Music className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600 m-auto" />}<div className="flex-1 min-w-0"><p className={clsx("truncate text-xs sm:text-sm", currentTrack?.id === t.id ? 'text-brand-primary' : 'text-white')}>{t.title}</p><p className="text-gray-400 text-xs truncate hidden sm:block">{t.artist}</p></div></div><span className="text-gray-500 text-xs hidden sm:inline">{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span></div><TrackMenu track={t} onAddToPlaylist={addToPlaylist} onDelete={() => {}} onTrackDelete={(deletedTrack) => {
+              // Refresh tracks list
+              apiFetch('/tracks').then(r => r?.json()).then(newTracks => {
+                if (newTracks) {
+                  setTracks(newTracks);
+                  setCurrentPlayList(newTracks);
+                }
+              });
+              // If current track was deleted, stop playback
+              if (currentTrack?.id === deletedTrack.id) {
+                audioRef.current.pause();
+                setIsPlaying(false);
+                setCurrentTrack(null);
+              }
+            }} /></div>)}</div></>}
+            {view === 'library-albums' && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
+                {getUniqueAlbums().map((a, i) => (
+                  <div {...getFocusProps('albums', i)} key={a.name} onClick={() => { setSelectedAlbum(a); setView('album'); }} className={clsx("group p-3 sm:p-4 bg-[#181818] hover:bg-[#252532] rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02]", focusCategory === 'albums' && focusIndex === i && 'ring-2 ring-brand-primary')}>
+                    <div className="relative mb-3 sm:mb-4">
+                      {a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-full aspect-square bg-gray-800 rounded-lg object-cover shadow-lg group-hover:shadow-xl transition-shadow duration-300" /> : <div className="w-full aspect-square bg-gradient-to-br from-gray-700 to-gray-800 rounded-lg flex items-center justify-center"><Disc className="w-12 sm:w-16 h-12 sm:h-16 text-gray-600" /></div>}
+                      <button className="absolute bottom-2 right-2 w-10 h-10 sm:w-12 sm:h-12 bg-brand-primary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 shadow-lg hover:scale-105" onClick={(e) => { e.stopPropagation(); const tracks = getAlbumTracks(a.name); if (tracks[0]) playTrack(tracks[0], tracks); }}><Play className="w-5 h-5 sm:w-6 sm:h-6 text-black ml-0.5 sm:ml-1" /></button>
+                    </div>
+                    <p className="text-white font-medium text-sm sm:text-base truncate">{a.name}</p>
+                    <p className="text-gray-400 text-xs sm:text-sm truncate mt-1">{a.artist}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {view === 'library-artists' && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
+                {getUniqueArtists().map((a, i) => (
+                  <div {...getFocusProps('artists', i)} key={a.name} onClick={() => { setSelectedArtist(a); setView('artist'); }} className={clsx("group p-3 sm:p-4 bg-[#181818] hover:bg-[#252532] rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02]", focusCategory === 'artists' && focusIndex === i && 'ring-2 ring-brand-primary')}>
+                    <div className="relative mb-3 sm:mb-4 flex justify-center">
+                      {a.cover ? <img src={getCoverUrl(a.cover.fileName)} className="w-24 sm:w-32 md:w-36 lg:w-40 aspect-square bg-gray-800 rounded-full object-cover shadow-lg group-hover:shadow-xl transition-shadow duration-300" /> : <div className="w-24 sm:w-32 md:w-36 lg:w-40 aspect-square bg-gradient-to-br from-gray-700 to-gray-800 rounded-full flex items-center justify-center"><User className="w-12 sm:w-16 h-12 sm:h-16 text-gray-600" /></div>}
+                    </div>
+                    <p className="text-white font-medium text-sm sm:text-base truncate text-center">{a.name}</p>
+                    <p className="text-gray-400 text-xs sm:text-sm truncate text-center mt-1">Artist</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1020,7 +1337,7 @@ function App() {
             </div>
           </header>
           <div className="sm:hidden px-3 pb-2"><div className="relative w-full"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" /><input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); if (view !== 'search') setView('search'); }} placeholder={t('searchPlaceholder')} className="w-full bg-white/10 border border-transparent rounded-full py-2 pl-9 pr-4 text-white placeholder-gray-400 focus:outline-none focus:bg-white/20 text-sm" /></div></div>
-          <div className="flex-1 overflow-y-auto pb-24 sm:pb-32">{renderContent()}</div>
+          <div className="flex-1 overflow-y-auto pb-24 sm:pb-32 animate-fade-in">{renderContent()}</div>
         </main>
       </div>
 
@@ -1110,6 +1427,30 @@ function App() {
             <div><p className="text-white font-bold text-xl">{currentUser.username}</p><p className="text-gray-400">ID: {currentUser.id}</p></div>
           </div>
           <button onClick={() => { const userId = currentUser?.id; apiFetch('/logout', { method: 'POST' }); setCurrentUser(null); localStorage.removeItem('localify_user'); localStorage.removeItem('localify_token'); if (userId) localStorage.removeItem(`localify_playback_state_${userId}`); }} className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20"><LogOut className="w-5 h-5" />Sign out</button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showAddToPlaylistModal} onClose={() => { setShowAddToPlaylistModal(false); setTrackToAdd(null); }} title="Add to playlist" size="sm">
+        <div className="space-y-2">
+          {playlists.length === 0 ? (
+            <p className="text-gray-400 text-center py-4">No playlists yet. Create one first!</p>
+          ) : (
+            playlists.map(playlist => (
+              <button
+                key={playlist.id}
+                onClick={() => handleAddToPlaylistConfirm(playlist.id)}
+                className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition-colors text-left"
+              >
+                <div className="w-12 h-12 bg-gradient-to-br from-gray-700 to-gray-800 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <ListMusic className="w-5 h-5 text-gray-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-medium truncate">{playlist.name}</p>
+                  <p className="text-gray-500 text-sm">{playlist.is_group_shared ? 'Shared playlist' : 'Your playlist'}</p>
+                </div>
+              </button>
+            ))
+          )}
         </div>
       </Modal>
 
@@ -1212,6 +1553,26 @@ function App() {
           volume={volume}
           currentTime={currentTime}
           duration={duration}
+          tracks={tracks}
+          playlists={playlists}
+          recommendations={recommendations}
+          recentlyPlayed={recentlyPlayed}
+          getUniqueAlbums={getUniqueAlbums}
+          getUniqueArtists={getUniqueArtists}
+          getAlbumTracks={getAlbumTracks}
+          getArtistTracks={getArtistTracks}
+          getArtistAlbums={getArtistAlbums}
+          apiFetch={apiFetch}
+          setActivePlaylist={setActivePlaylist}
+          setPlaylistTracks={setPlaylistTracks}
+          setCurrentPlayList={setCurrentPlayList}
+          setSelectedAlbum={setSelectedAlbum}
+          setSelectedArtist={setSelectedArtist}
+          setView={setView}
+          audioRef={audioRef}
+          setIsPlaying={setIsPlaying}
+          setRecentlyPlayed={setRecentlyPlayed}
+          getStreamUrl={getStreamUrl}
         />
       )}
     </div>
@@ -1222,156 +1583,446 @@ function ConsoleModeView({
   currentTrack, isPlaying,
   consoleView, setConsoleView, consoleFocus, setConsoleFocus,
   flatItems, controllerType, onPlayPause, onNext, onPrev,
-  onVolumeUp, onVolumeDown, getCoverUrl, setConsoleMode, volume, currentTime, duration
+  onVolumeUp, onVolumeDown, getCoverUrl, setConsoleMode, volume, currentTime, duration,
+  tracks, playlists, recommendations, recentlyPlayed, getUniqueAlbums, getUniqueArtists, getAlbumTracks, getArtistTracks, getArtistAlbums, apiFetch,
+  setActivePlaylist, setPlaylistTracks, setCurrentPlayList, setSelectedAlbum, setSelectedArtist, setView
 }) {
   const isPS = controllerType === 'playstation';
-  const listRef = React.useRef(null);
+  const gridRef = useRef(null);
+  const [gridItems, setGridItems] = useState([]);
+  const [gridFocus, setGridFocus] = useState({ row: 0, col: 0 });
+  const [gridCols, setGridCols] = useState(4);
 
-  React.useEffect(() => {
-    if (listRef.current && flatItems.length > 0) {
-      const el = listRef.current.children[consoleFocus.row];
-      if (el) {
-        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  // Calculer la grille dynamique
+  useEffect(() => {
+    const updateGrid = () => {
+      let items = [];
+      let cols = 4;
+      
+      if (consoleView === 'home') {
+        items = [
+          { type: 'section', label: 'Playlists', items: playlists.slice(0, 8) },
+          { type: 'section', label: 'Recommandations', items: (recommendations.length > 0 ? recommendations : tracks.slice(0, 8)) },
+          { type: 'section', label: 'Albums', items: getUniqueAlbums().slice(0, 8) },
+          { type: 'section', label: 'Artists', items: getUniqueArtists().slice(0, 8) }
+        ];
+        cols = 4;
+      } else if (consoleView === 'playlist' || consoleView === 'album') {
+        const albumName = currentTrack?.album;
+        const albumTracks = albumName ? getAlbumTracks(albumName) : tracks.slice(0, 20);
+        items = [{ type: 'tracks', items: albumTracks }];
+        cols = 3;
+      } else if (consoleView === 'artist') {
+        const artistName = currentTrack?.artist;
+        items = [
+          { type: 'section', label: 'Songs', items: getArtistTracks(artistName).slice(0, 12) },
+          { type: 'section', label: 'Albums', items: getArtistAlbums(artistName).slice(0, 8) }
+        ];
+        cols = 4;
+      }
+      
+      setGridItems(items);
+      setGridCols(cols);
+    };
+    
+    updateGrid();
+    window.addEventListener('resize', updateGrid);
+    return () => window.removeEventListener('resize', updateGrid);
+  }, [consoleView, playlists, recentlyPlayed, tracks, currentTrack, getUniqueAlbums, getUniqueArtists, getAlbumTracks, getArtistTracks, getArtistAlbums]);
+
+  // Synchroniser avec le focus global
+  useEffect(() => {
+    // Convertir flatItems focus en grille focus
+    let flatIndex = 0;
+    for (let r = 0; r < gridItems.length; r++) {
+      const section = gridItems[r];
+      if (section.type === 'section') {
+        for (let c = 0; c < Math.min(section.items.length, gridCols); c++) {
+          if (flatIndex === consoleFocus.row) {
+            setGridFocus({ row: r, col: c });
+            return;
+          }
+          flatIndex++;
+        }
+      } else if (section.type === 'tracks') {
+        for (let c = 0; c < Math.min(section.items.length, gridCols); c++) {
+          if (flatIndex === consoleFocus.row) {
+            setGridFocus({ row: r, col: c });
+            return;
+          }
+          flatIndex++;
+        }
       }
     }
-  }, [consoleFocus.row, flatItems.length]);
+  }, [consoleFocus.row, gridItems, gridCols]);
 
-  const getViewTitle = () => {
-    const titles = {
-      home: 'Localify',
-      playlist: currentTrack?.album || 'Playlist',
-      album: currentTrack?.album || 'Album',
-      artist: currentTrack?.artist || 'Artist'
-    };
-    return titles[consoleView] || 'Localify';
+  const navigateGrid = (direction) => {
+    setGridFocus(prev => {
+      let { row, col } = prev;
+      
+      switch (direction) {
+        case 'up':
+          row = Math.max(0, row - 1);
+          break;
+        case 'down':
+          row = Math.min(gridItems.length - 1, row + 1);
+          break;
+        case 'left':
+          col = Math.max(0, col - 1);
+          break;
+        case 'right':
+          col = Math.min(gridCols - 1, col + 1);
+          break;
+      }
+      
+      return { row, col };
+    });
+    
+    // Scroll to keep focused item visible
+    setTimeout(() => {
+      const item = getGridItem(row, col);
+      if (item && gridRef.current) {
+        const element = gridRef.current.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }
+    }, 100);
   };
 
-  const isFocused = (index) => consoleFocus.row === index;
+  const getGridItem = (row, col) => {
+    const section = gridItems[row];
+    if (!section) return null;
+    
+    if (section.type === 'section') {
+      return section.items[col] || null;
+    } else if (section.type === 'tracks') {
+      return section.items[col] || null;
+    }
+    
+    return null;
+  };
 
-  const getItemIcon = (icon) => {
-    switch(icon) {
-      case 'list': return <ListMusic className="w-5 h-5" />;
-      case 'clock': return <SkipBack className="w-5 h-5" />;
-      case 'disc': return <Disc className="w-5 h-5" />;
-      case 'user': return <User className="w-5 h-5" />;
-      case 'music': return <Music className="w-5 h-5" />;
-      default: return null;
+  const handleSelect = () => {
+    const item = getGridItem(gridFocus.row, gridFocus.col);
+    if (!item) return;
+
+    const section = gridItems[gridFocus.row];
+    
+    if (section.type === 'section') {
+      if (section.label === 'Playlists') {
+        setActivePlaylist(item);
+        apiFetch(`/playlists/${item.id}/tracks`).then(r => r?.json()).then(d => {
+          if (d) {
+            setPlaylistTracks(d);
+            setCurrentPlayList(d);
+          }
+        });
+        setConsoleView('playlist');
+        setGridFocus({ row: 0, col: 0 });
+      } else if (section.label === 'Recently Played') {
+        playTrack(item);
+      } else if (section.label === 'Albums') {
+        setSelectedAlbum(item);
+        setConsoleView('album');
+        setGridFocus({ row: 0, col: 0 });
+      } else if (section.label === 'Artists') {
+        setSelectedArtist(item);
+        setConsoleView('artist');
+        setGridFocus({ row: 0, col: 0 });
+      }
+    } else if (section.type === 'tracks') {
+      playTrack(item, section.items);
     }
   };
 
+  const playTrack = (track, list = null) => {
+    const playlist = list || currentPlayList || tracks;
+    setCurrentPlayList(playlist);
+    
+    if (currentTrack?.id === track.id) {
+      if (isPlaying) audioRef.current.pause();
+      else audioRef.current.play().catch(() => {});
+      setIsPlaying(!isPlaying);
+      return;
+    }
+    setCurrentTrack(track);
+    setIsPlaying(true);
+    audioRef.current.src = getStreamUrl(track.fileName);
+    audioRef.current.play().catch(() => {});
+    setRecentlyPlayed(prev => [track, ...prev.filter(t => t.id !== track.id)].slice(0, 20));
+  };
+
+  const isFocused = (row, col) => gridFocus.row === row && gridFocus.col === col;
+
   return (
-    <div className="fixed inset-0 z-[100] bg-black flex flex-col">
-      <div className="h-14 bg-gradient-to-b from-[#1a1a1a] to-transparent flex items-center px-4">
-        <button 
-          onClick={() => setConsoleMode(false)}
-          className="text-gray-400 hover:text-white p-2 hover:bg-white/10 rounded-lg transition-colors mr-2"
-        >
-          <X className="w-5 h-5" />
-        </button>
-        <span className="text-white font-bold text-lg">{getViewTitle()}</span>
+    <div className="fixed inset-0 z-[100] bg-gradient-to-b from-[#0a0a0f] via-[#121218] to-[#0a0a0f] flex flex-col">
+      {/* Header TV Style */}
+      <div className="h-16 bg-gradient-to-r from-[#1a1a24] to-[#121218] border-b border-white/10 flex items-center justify-between px-6">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setConsoleMode(false)}
+            className="text-gray-400 hover:text-white p-2 hover:bg-white/10 rounded-lg transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <div className="w-8 h-8 bg-brand-primary rounded-lg flex items-center justify-center">
+            <Music className="w-5 h-5 text-black" />
+          </div>
+          <span className="text-white font-bold text-xl">Localify TV</span>
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse ml-2"></div>
+        </div>
+        
+        <div className="text-gray-400 text-sm">
+          {controllerType === 'playstation' ? '🎮 PlayStation Controller' : '🎮 Xbox Controller'}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4" ref={listRef}>
-        {flatItems.map((item, index) => {
-          if (item.type === 'category') {
-            return (
-              <div key={index} className="flex items-center gap-2 py-3 px-2">
-                {getItemIcon(item.icon)}
-                <span className="text-white font-bold text-lg">{item.label}</span>
-              </div>
-            );
-          }
-          
-          return (
-            <div 
-              key={index}
-              onClick={item.action}
-              className={clsx(
-                "flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all mb-1",
-                isFocused(index) 
-                  ? "bg-brand-primary/20 ring-2 ring-brand-primary" 
-                  : "hover:bg-white/5"
+      {/* Grid Content */}
+      <div className="flex-1 p-8 overflow-y-auto" ref={gridRef}>
+        <div className="max-w-7xl mx-auto">
+          {gridItems.map((section, rowIndex) => (
+            <div key={rowIndex} className="mb-8">
+              {section.type === 'section' && (
+                <>
+                  <h2 className="text-2xl font-bold text-white mb-6">{section.label}</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    {section.items.slice(0, gridCols).map((item, colIndex) => (
+                      <div
+                        key={colIndex}
+                        onClick={() => {
+                          setGridFocus({ row: rowIndex, col: colIndex });
+                          handleSelect();
+                        }}
+                        className={clsx(
+                          "group cursor-pointer transform transition-all duration-300 hover:scale-105",
+                          isFocused(rowIndex, colIndex) 
+                            ? "ring-4 ring-brand-primary scale-110 z-10" 
+                            : "hover:translate-y-[-4px]"
+                        )}
+                      >
+                        <div className="bg-gradient-to-br from-white/10 to-white/5 rounded-2xl p-6 backdrop-blur-sm border border-white/20 hover:border-white/40 transition-all">
+                          <div className="w-full aspect-square bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl mb-4 overflow-hidden shadow-2xl">
+                            {item.hasPicture || item.cover ? (
+                              <img 
+                                src={item.hasPicture ? getCoverUrl(item.fileName) : item.cover} 
+                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                {section.label === 'Playlists' ? (
+                                  <ListMusic className="w-16 h-16 text-gray-600 mx-auto" />
+                                ) : section.label === 'Albums' ? (
+                                  <Disc className="w-16 h-16 text-gray-600 mx-auto" />
+                                ) : section.label === 'Artists' ? (
+                                  <User className="w-16 h-16 text-gray-600 mx-auto" />
+                                ) : (
+                                  <Music className="w-16 h-16 text-gray-600 mx-auto" />
+                                )}
+                              </div>
+                            )}
+                            {isFocused(rowIndex, colIndex) && (
+                              <div className="absolute inset-0 bg-brand-primary/30 rounded-xl flex items-center justify-center">
+                                <div className="w-16 h-16 bg-brand-primary rounded-full flex items-center justify-center shadow-lg">
+                                  <Play className="w-8 h-8 text-black ml-1" />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <h3 className="text-white font-semibold text-lg truncate">{item.name || item.title}</h3>
+                            {item.artist && (
+                              <p className="text-gray-400 text-sm truncate">{item.artist}</p>
+                            )}
+                            {item.album && section.label !== 'Albums' && (
+                              <p className="text-gray-500 text-xs truncate">{item.album}</p>
+                            )}
+                            {item.duration && (
+                              <p className="text-gray-500 text-xs">
+                                {Math.floor(item.duration/60)}:{String(Math.floor(item.duration%60)).padStart(2,'0')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
-            >
-              <div className={clsx(
-                "w-14 h-14 rounded-lg overflow-hidden flex-shrink-0",
-                item.cover ? "" : "bg-gray-800 flex items-center justify-center"
-              )}>
-                {item.cover ? (
-                  <img src={item.cover} className="w-full h-full object-cover" />
+              
+              {section.type === 'tracks' && (
+                <>
+                  <h2 className="text-2xl font-bold text-white mb-6">Tracks</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    {section.items.slice(0, gridCols).map((item, colIndex) => (
+                      <div
+                        key={colIndex}
+                        onClick={() => {
+                          setGridFocus({ row: rowIndex, col: colIndex });
+                          handleSelect();
+                        }}
+                        className={clsx(
+                          "group cursor-pointer transform transition-all duration-300 hover:scale-105",
+                          isFocused(rowIndex, colIndex) 
+                            ? "ring-4 ring-brand-primary scale-110 z-10" 
+                            : "hover:translate-y-[-4px]"
+                        )}
+                      >
+                        <div className="bg-gradient-to-br from-white/10 to-white/5 rounded-xl p-4 backdrop-blur-sm border border-white/20 hover:border-white/40 transition-all">
+                          <div className="flex items-center gap-4">
+                            <div className="w-16 h-16 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden shadow-lg">
+                              {item.hasPicture ? (
+                                <img 
+                                  src={getCoverUrl(item.fileName)} 
+                                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Music className="w-8 h-8 text-gray-600" />
+                                </div>
+                              )}
+                              {isFocused(rowIndex, colIndex) && (
+                                <div className="absolute inset-0 bg-brand-primary/30 rounded-lg flex items-center justify-center">
+                                  <div className="w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center">
+                                    <Play className="w-4 h-4 text-black ml-0.5" />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-white font-medium text-base truncate">{item.title}</h3>
+                              <p className="text-gray-400 text-sm truncate">{item.artist}</p>
+                              <p className="text-gray-500 text-xs mt-1">
+                                {Math.floor(item.duration/60)}:{String(Math.floor(item.duration%60)).padStart(2,'0')}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Player Bar TV Style */}
+      <div className="h-32 bg-gradient-to-t from-[#181824] to-[#121218] border-t border-white/10 px-8 flex items-center justify-between">
+        {/* Current Track Info */}
+        <div className="flex items-center gap-6 flex-1">
+          {currentTrack && (
+            <>
+              <div className="w-20 h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl overflow-hidden shadow-2xl">
+                {currentTrack.hasPicture ? (
+                  <img src={getCoverUrl(currentTrack.fileName)} className="w-full h-full object-cover" />
                 ) : (
-                  item.type === 'playlist' ? <ListMusic className="w-7 h-7 text-gray-600" /> :
-                  item.type === 'album' ? <Disc className="w-7 h-7 text-gray-600" /> :
-                  item.type === 'artist' ? <User className="w-7 h-7 text-gray-600" /> :
-                  <Music className="w-7 h-7 text-gray-600" />
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Disc className="w-10 h-10 text-gray-600" />
+                  </div>
                 )}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className={clsx("font-medium truncate", currentTrack?.id === item.data?.id ? "text-brand-primary" : "text-white")}>
-                  {item.label}
-                </p>
-                {item.sublabel && <p className="text-gray-500 text-sm truncate">{item.sublabel}</p>}
+              
+              <div className="min-w-0">
+                <h3 className="text-white font-bold text-lg truncate">{currentTrack.title}</h3>
+                <p className="text-gray-400 text-base truncate">{currentTrack.artist}</p>
               </div>
-              {isFocused(index) && (
-                <div className="w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center flex-shrink-0">
-                  <Play className="w-4 h-4 text-black ml-0.5" />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+            </>
+          )}
+        </div>
 
-      <div className="h-24 bg-[#181818] border-t border-white/10 px-6 flex flex-col justify-center">
-        {currentTrack && (
-          <div className="flex items-center gap-4 mb-2">
-            <div className="w-12 h-12 bg-gray-800 rounded-lg overflow-hidden flex-shrink-0">
-              {currentTrack.hasPicture ? (
-                <img src={getCoverUrl(currentTrack.fileName)} className="w-full h-full object-cover" />
+        {/* Player Controls */}
+        <div className="flex flex-col items-center gap-4 flex-1">
+          <div className="flex items-center gap-6">
+            <button onClick={onPrev} className="text-gray-400 hover:text-white p-3 rounded-full hover:bg-white/10 transition-colors">
+              <SkipBack className="w-8 h-8" />
+            </button>
+            
+            <button 
+              onClick={onPlayPause}
+              className="w-16 h-16 bg-white rounded-full flex items-center justify-center hover:scale-110 transition-transform shadow-2xl"
+            >
+              {isPlaying ? (
+                <Pause className="w-8 h-8 text-black" />
               ) : (
-                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
-                  <Disc className="w-5 h-5 text-gray-500" />
-                </div>
+                <Play className="w-8 h-8 text-black ml-1" />
               )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium truncate">{currentTrack.title}</p>
-              <p className="text-gray-400 text-sm truncate">{currentTrack.artist}</p>
-            </div>
-          </div>
-        )}
-        
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-gray-500 text-xs w-10">{Math.floor(currentTime/60)}:{String(Math.floor(currentTime%60)).padStart(2,'0')}</span>
-            <div className="w-48 sm:w-64 h-1.5 bg-white/20 rounded-full overflow-hidden">
-              <div className="h-full bg-brand-primary rounded-full" style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }} />
-            </div>
-            <span className="text-gray-500 text-xs w-10">{Math.floor(duration/60)}:{String(Math.floor(duration%60)).padStart(2,'0')}</span>
+            </button>
+            
+            <button onClick={onNext} className="text-gray-400 hover:text-white p-3 rounded-full hover:bg-white/10 transition-colors">
+              <SkipForward className="w-8 h-8" />
+            </button>
           </div>
           
-          <div className="flex items-center gap-4">
-            <button onClick={onPrev} className="text-gray-400 hover:text-white p-2">
-              <SkipBack className="w-6 h-6" />
-            </button>
-            <button onClick={onPlayPause} className="w-12 h-12 bg-white rounded-full flex items-center justify-center hover:scale-105 transition-transform">
-              {isPlaying ? <Pause className="w-6 h-6 text-black" /> : <Play className="w-6 h-6 text-black ml-1" />}
-            </button>
-            <button onClick={onNext} className="text-gray-400 hover:text-white p-2">
-              <SkipForward className="w-6 h-6" />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button onClick={onVolumeDown} className="text-gray-400 hover:text-white p-1">
-              <Volume2 className="w-5 h-5 transform rotate-180" />
-            </button>
-            <div className="w-20 h-1.5 bg-white/20 rounded-full overflow-hidden">
-              <div className="h-full bg-white rounded-full" style={{ width: `${volume * 100}%` }} />
+          <div className="flex items-center gap-4 w-full max-w-md">
+            <span className="text-gray-400 text-sm tabular-nums w-12 text-right">
+              {Math.floor(currentTime/60)}:{String(Math.floor(currentTime%60)).padStart(2,'0')}
+            </span>
+            <div className="flex-1 relative h-2 bg-white/20 rounded-full overflow-hidden">
+              <div 
+                className="absolute h-full bg-brand-primary rounded-full transition-all"
+                style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+              />
+              <input 
+                type="range" 
+                min="0" 
+                max={duration||100} 
+                step="0.1" 
+                value={currentTime} 
+                onChange={(e) => { audioRef.current.currentTime = e.target.value; }} 
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
             </div>
-            <button onClick={onVolumeUp} className="text-gray-400 hover:text-white p-1">
-              <Volume2 className="w-5 h-5" />
-            </button>
+            <span className="text-gray-400 text-sm tabular-nums w-12">
+              {Math.floor(duration/60)}:{String(Math.floor(duration%60)).padStart(2,'0')}
+            </span>
+          </div>
+        </div>
+
+        {/* Volume Controls */}
+        <div className="flex items-center gap-4 flex-1 justify-end">
+          <button onClick={onVolumeDown} className="text-gray-400 hover:text-white p-2">
+            <Volume2 className="w-6 h-6 transform rotate-180" />
+          </button>
+          <div className="w-32 h-2 bg-white/20 rounded-full overflow-hidden">
+            <div className="h-full bg-white rounded-full" style={{ width: `${volume * 100}%` }} />
+          </div>
+          <button onClick={onVolumeUp} className="text-gray-400 hover:text-white p-2">
+            <Volume2 className="w-6 h-6" />
+          </button>
+        </div>
+      </div>
+
+      {/* Gamepad Hints Overlay */}
+      <div className="absolute bottom-6 left-6 bg-black/80 backdrop-blur-md px-4 py-3 rounded-lg border border-white/20">
+        <div className="text-white text-sm font-medium mb-2">Controller Navigation</div>
+        <div className="grid grid-cols-2 gap-2 text-xs text-gray-300">
+          <div className="flex items-center gap-2">
+            <span className="bg-white/20 px-2 py-1 rounded text-white font-bold text-xs">
+              {isPS ? '✕' : 'A'}
+            </span>
+            <span>Select</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="bg-white/20 px-2 py-1 rounded text-white font-bold text-xs">
+              {isPS ? '○' : 'B'}
+            </span>
+            <span>Back</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="bg-white/20 px-2 py-1 rounded text-white font-bold text-xs">
+              D-pad
+            </span>
+            <span>Navigate</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="bg-white/20 px-2 py-1 rounded text-white font-bold text-xs">
+              {isPS ? 'R1' : 'RB'}
+            </span>
+            <span>Next</span>
           </div>
         </div>
       </div>
