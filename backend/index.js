@@ -173,7 +173,7 @@ app.post('/api/login', async (req, res) => {
 
   res.json({
     token,
-    user: { id: user.id, username: user.username, group_id: user.group_id, is_admin: user.is_admin }
+    user: { id: user.id, username: user.username, group_id: user.group_id, is_admin: user.is_admin, hasPin: !!user.pin }
   });
 });
 
@@ -307,22 +307,40 @@ app.get('/api/groups/:id', authenticate, (req, res) => {
     res.json(group);
 });
 
-app.put('/api/users/:id', authenticate, (req, res) => {
+app.put('/api/users/:id', authenticate, async (req, res) => {
     const userId = req.params.id;
-    const { username } = req.body;
+    const { username, pin, removePin } = req.body;
     
     if (req.user.id !== parseInt(userId) && !req.user.is_admin) {
       return res.status(403).json({ error: "Not authorized" });
     }
     
-    if (!username || username.trim().length < 2) {
-      return res.status(400).json({ error: "Username is required" });
-    }
-    
     try {
-      const info = db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username.trim(), userId);
-      if (info.changes === 0) return res.status(404).json({ error: "User not found" });
-      res.json({ success: true, username: username.trim() });
+      if (username !== undefined) {
+        if (!username || username.trim().length < 2) {
+          return res.status(400).json({ error: "Username is required" });
+        }
+        const info = db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username.trim(), userId);
+        if (info.changes === 0) return res.status(404).json({ error: "User not found" });
+      }
+      
+      if (pin !== undefined || removePin !== undefined) {
+        const user = db.prepare('SELECT pin FROM users WHERE id = ?').get(userId);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        
+        if (removePin === true) {
+          db.prepare('UPDATE users SET pin = NULL WHERE id = ?').run(userId);
+        } else if (pin !== null && pin !== undefined) {
+          if (pin && (pin.length !== 4 || !/^\d{4}$/.test(pin))) {
+            return res.status(400).json({ error: "PIN must be exactly 4 digits" });
+          }
+          const hashedPin = pin ? await bcrypt.hash(pin, 10) : null;
+          db.prepare('UPDATE users SET pin = ? WHERE id = ?').run(hashedPin, userId);
+        }
+      }
+      
+      const updatedUser = db.prepare('SELECT id, username, group_id, is_admin, pin IS NOT NULL as hasPin FROM users WHERE id = ?').get(userId);
+      res.json({ success: true, user: updatedUser });
     } catch (e) {
       if (e.message.includes('UNIQUE constraint')) {
         return res.status(400).json({ error: "Username already exists" });

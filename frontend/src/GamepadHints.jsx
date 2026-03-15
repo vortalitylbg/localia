@@ -26,8 +26,8 @@ export function GamepadHints({ controllerType, mode = 'navigation', visible = tr
 
   const keyLabels = {
     playstation: {
-      cross: '✕',
-      circle: '○',
+      cross: 'X',
+      circle: 'O',
       square: '□',
       triangle: '△',
       l1: 'L1',
@@ -74,7 +74,7 @@ export function GamepadIndicator({ connected, type }) {
     <div className="fixed top-4 right-4 flex items-center gap-2 bg-black/80 backdrop-blur-sm px-3 py-1.5 rounded-full z-50 border border-white/10">
       <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
       <span className="text-gray-300 text-xs">
-        {isPS ? '🎮 PS' : '🎮 Xbox'}
+        {isPS ? 'PS' : 'Xbox'}
       </span>
     </div>
   );

@@ -181,6 +181,12 @@ function App() {
   const [enteredPin, setEnteredPin] = useState(['', '', '', '']);
   const [pinError, setPinError] = useState('');
   const [newPlaylistName, setNewPlaylistName] = useState('');
+  const [isEditingUsername, setIsEditingUsername] = useState(false);
+  const [editedUsername, setEditedUsername] = useState('');
+  const [showPinSetupModal, setShowPinSetupModal] = useState(false);
+  const [newPin, setNewPin] = useState(['', '', '', '']);
+  const [pinSetupError, setPinSetupError] = useState('');
+  const [isDeletingProfile, setIsDeletingProfile] = useState(false);
   const [selectedProfileIndex, setSelectedProfileIndex] = useState(0);
   const [language, setLanguage] = useState(() => {
     const saved = localStorage.getItem('localify_language');
@@ -270,6 +276,32 @@ function App() {
   }, [tracks]);
 
   useEffect(() => { localStorage.setItem('localify_language', language); }, [language]);
+
+  useEffect(() => {
+    if (isDeletingProfile && currentUser) {
+      const deleteProfile = async () => {
+        try {
+          const res = await apiFetch(`/users/${currentUser.id}`, { method: 'DELETE' });
+          if (res.ok) {
+            localStorage.removeItem('localify_token');
+            localStorage.removeItem('localify_user');
+            localStorage.removeItem('localify_avatar');
+            if (currentUser.id) localStorage.removeItem(`localify_playback_state_${currentUser.id}`);
+            setCurrentUser(null);
+            setUsers(prev => prev.filter(u => u.id !== currentUser.id));
+          } else {
+            const data = await res.json();
+            alert(data.error || 'Failed to delete profile');
+          }
+        } catch (err) {
+          console.error('Delete profile failed:', err);
+          alert('Failed to delete profile');
+        }
+        setIsDeletingProfile(false);
+      };
+      deleteProfile();
+    }
+  }, [isDeletingProfile, currentUser]);
 
   useEffect(() => { 
     apiFetch('/users').then(r => r?.json()).then(setUsers).catch(() => {}); 
@@ -1784,9 +1816,170 @@ function App() {
         <div className="space-y-6">
           <div className="flex items-center gap-6">
             <div className="relative"><div className="w-20 h-20 rounded-full overflow-hidden bg-gray-800">{userAvatar ? <img src={userAvatar} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-brand-primary flex items-center justify-center text-3xl text-black font-bold">{currentUser.username[0].toUpperCase()}</div>}</div><button onClick={() => avatarInputRef.current.click()} className="absolute bottom-0 right-0 bg-brand-primary p-2 rounded-full"><Camera className="w-4 h-4 text-black" /></button><input type="file" ref={avatarInputRef} onChange={handleAvatarUpload} accept="image/*" className="hidden" /></div>
-            <div><p className="text-white font-bold text-xl">{currentUser.username}</p><p className="text-gray-400">ID: {currentUser.id}</p></div>
+            <div>
+              {isEditingUsername ? (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="text" 
+                      value={editedUsername} 
+                      onChange={(e) => setEditedUsername(e.target.value)}
+                      className="bg-white/10 border border-white/10 rounded-lg px-3 py-1.5 text-white text-lg font-bold focus:outline-none focus:border-brand-primary"
+                      maxLength={20}
+                    />
+                    <button 
+                      onClick={async () => {
+                        if (editedUsername.trim().length < 2) return;
+                        const res = await apiFetch(`/users/${currentUser.id}`, { 
+                          method: 'PUT', 
+                          body: JSON.stringify({ username: editedUsername.trim() }) 
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                          setCurrentUser({ ...currentUser, username: editedUsername.trim() });
+                          localStorage.setItem('localify_user', JSON.stringify({ ...currentUser, username: editedUsername.trim() }));
+                          setIsEditingUsername(false);
+                        } else {
+                          alert(data.error || 'Failed to update username');
+                        }
+                      }}
+                      className="p-1.5 bg-brand-primary rounded-full text-black hover:bg-green-400"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    </button>
+                    <button 
+                      onClick={() => { setIsEditingUsername(false); setEditedUsername(currentUser.username); }}
+                      className="p-1.5 bg-white/10 rounded-full text-gray-400 hover:text-white"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-white font-bold text-xl">{currentUser.username}</p>
+                  <button onClick={() => { setIsEditingUsername(true); setEditedUsername(currentUser.username); }} className="text-gray-400 text-sm hover:text-white">Edit name</button>
+                </>
+              )}
+              <p className="text-gray-400 text-sm">ID: {currentUser.id}</p>
+            </div>
           </div>
-          <button onClick={() => { const userId = currentUser?.id; apiFetch('/logout', { method: 'POST' }); setCurrentUser(null); localStorage.removeItem('localify_user'); localStorage.removeItem('localify_token'); if (userId) localStorage.removeItem(`localify_playback_state_${userId}`); }} className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20"><LogOut className="w-5 h-5" />Sign out</button>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 bg-[#181818] rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                </div>
+                <div>
+                  <p className="text-white font-medium">PIN Code</p>
+                  <p className="text-gray-400 text-sm">{currentUser.hasPin ? 'Enabled' : 'Not set'}</p>
+                </div>
+              </div>
+              {currentUser.hasPin ? (
+                <button 
+                  onClick={async () => {
+                    if (window.confirm('Are you sure you want to remove your PIN code?')) {
+                      const res = await apiFetch(`/users/${currentUser.id}`, { 
+                        method: 'PUT', 
+                        body: JSON.stringify({ removePin: true }) 
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        setCurrentUser({ ...currentUser, hasPin: false });
+                        apiFetch('/users').then(r => r?.json()).then(setUsers);
+                      } else {
+                        alert(data.error || 'Failed to remove PIN');
+                      }
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-full text-sm hover:bg-red-500/30"
+                >
+                  Remove
+                </button>
+              ) : (
+                <button 
+                  onClick={() => { setShowPinSetupModal(true); setNewPin(['', '', '', '']); setPinSetupError(''); }}
+                  className="px-3 py-1.5 bg-brand-primary text-black rounded-full text-sm font-medium hover:bg-green-400"
+                >
+                  Add PIN
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-[#181818] rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
+                  <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </div>
+                <div>
+                  <p className="text-white font-medium">Delete Profile</p>
+                  <p className="text-gray-400 text-sm">Permanently delete your account</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to delete your profile? This action cannot be undone and all your playlists will be deleted.')) {
+                    setIsDeletingProfile(true);
+                  }
+                }}
+                className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-full text-sm hover:bg-red-500/30"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+
+          <button onClick={() => { const userId = currentUser?.id; apiFetch('/logout', { method: 'POST' }); setCurrentUser(null); localStorage.removeItem('localify_user'); localStorage.removeItem('localify_token'); if (userId) localStorage.removeItem(`localify_playback_state_${userId}`); }} className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20 w-full justify-center"><LogOut className="w-5 h-5" />Sign out</button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showPinSetupModal} onClose={() => setShowPinSetupModal(false)} title="Set PIN Code">
+        <div className="text-center py-4">
+          <p className="text-gray-400 mb-4">Enter a 4-digit PIN to protect your profile</p>
+          <div className="flex justify-center gap-2 mb-4">
+            {newPin.map((d, i) => (
+              <input 
+                key={i} 
+                type="text" 
+                inputMode="numeric" 
+                maxLength={1} 
+                value={d} 
+                onChange={(e) => { 
+                  const v = e.target.value.replace(/\D/g,''); 
+                  const n = [...newPin]; 
+                  n[i] = v; 
+                  setNewPin(n); 
+                  if (v && i < 3) document.getElementById(`newpin${i+1}`)?.focus(); 
+                }} 
+                id={`newpin${i}`}
+                className="w-12 h-14 bg-white/10 border border-white/10 rounded-lg text-white text-center text-xl" 
+                autoFocus={i===0} 
+              />
+            ))}
+          </div>
+          {pinSetupError && <p className="text-red-400 text-sm mb-4">{pinSetupError}</p>}
+          <button 
+            onClick={async () => {
+              const pin = newPin.join('');
+              if (pin.length !== 4) { setPinSetupError('Enter 4 digits'); return; }
+              const res = await apiFetch(`/users/${currentUser.id}`, { 
+                method: 'PUT', 
+                body: JSON.stringify({ pin }) 
+              });
+              const data = await res.json();
+              if (data.success) {
+                setCurrentUser({ ...currentUser, hasPin: true });
+                apiFetch('/users').then(r => r?.json()).then(setUsers);
+                setShowPinSetupModal(false);
+              } else {
+                setPinSetupError(data.error || 'Failed to set PIN');
+              }
+            }} 
+            className="w-full bg-brand-primary text-black font-bold py-3 rounded-full"
+          >
+            Save PIN
+          </button>
         </div>
       </Modal>
 
@@ -2202,7 +2395,7 @@ function ConsoleModeView({
         </div>
         
         <div className="text-gray-400 text-sm">
-          {controllerType === 'playstation' ? '🎮 PlayStation Controller' : '🎮 Xbox Controller'}
+          {controllerType === 'playstation' ? 'PlayStation Controller' : 'Xbox Controller'}
         </div>
       </div>
 
@@ -2430,13 +2623,13 @@ function ConsoleModeView({
         <div className="grid grid-cols-2 gap-2 text-xs text-gray-300">
           <div className="flex items-center gap-2">
             <span className="bg-white/20 px-2 py-1 rounded text-white font-bold text-xs">
-              {isPS ? '✕' : 'A'}
+              {isPS ? 'X' : 'A'}
             </span>
             <span>Select</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="bg-white/20 px-2 py-1 rounded text-white font-bold text-xs">
-              {isPS ? '○' : 'B'}
+              {isPS ? 'O' : 'B'}
             </span>
             <span>Back</span>
           </div>
