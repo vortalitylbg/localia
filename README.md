@@ -165,4 +165,4 @@ MIT License - Voir le fichier LICENSE pour plus de détails.
 
 ---
 
-Pour plus d'informations, consultez le site web: [localia-web](localia-web/)
+Pour plus d'informations, consultez le site web: [localia-web](https://www.localia.online)
