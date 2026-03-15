@@ -665,6 +665,7 @@ app.get('/api/stream/:fileName', optionalAuth, (req, res) => {
             'Accept-Ranges': 'bytes',
             'Content-Length': chunksize,
             'Content-Type': fileName.endsWith('.flac') ? 'audio/flac' : 'audio/mpeg',
+            'Access-Control-Allow-Origin': '*',
         };
         res.writeHead(206, head);
         file.pipe(res);
@@ -672,6 +673,7 @@ app.get('/api/stream/:fileName', optionalAuth, (req, res) => {
         const head = {
             'Content-Length': fileSize,
             'Content-Type': fileName.endsWith('.flac') ? 'audio/flac' : 'audio/mpeg',
+            'Access-Control-Allow-Origin': '*',
         };
         res.writeHead(200, head);
         fs.createReadStream(filePath).pipe(res);
@@ -693,6 +695,7 @@ app.get('/api/cover/:fileName', optionalAuth, async (req, res) => {
         if (metadata.common.picture && metadata.common.picture.length > 0) {
             const picture = metadata.common.picture[0];
             res.set('Content-Type', picture.format);
+            res.set('Access-Control-Allow-Origin', '*');
             res.send(picture.data);
         } else {
             res.status(404).send('No cover art');

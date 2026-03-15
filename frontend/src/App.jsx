@@ -213,6 +213,9 @@ function App() {
   const audioRef = useRef(null);
   const [trackStartTime, setTrackStartTime] = useState(null);
   const avatarInputRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const equalizerRef = useRef(null);
+  const wasPlayingRef = useRef(false);
 
   const equalizerPresets = {
     flat: { name: 'Flat', values: [0, 0, 0, 0, 0] },
@@ -222,8 +225,55 @@ function App() {
     rock: { name: 'Rock', values: [5, 3, -1, 2, 4] },
     electronic: { name: 'Electronic', values: [4, 2, 0, 3, 5] },
   };
+  const equalizerFrequencies = [60, 230, 910, 3600, 14000];
+  const equalizerLabels = ['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz'];
   const [equalizerValues, setEqualizerValues] = useState([0, 0, 0, 0, 0]);
   const [equalizerPreset, setEqualizerPreset] = useState('flat');
+
+  const initEqualizer = useCallback(async () => {
+    if (audioContextRef.current || !audioRef.current) return;
+    
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+      audioContextRef.current = ctx;
+      
+      const source = ctx.createMediaElementSource(audioRef.current);
+      
+      const filters = equalizerFrequencies.map((freq, i) => {
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'peaking';
+        filter.frequency.value = freq;
+        filter.Q.value = 1;
+        filter.gain.value = equalizerValues[i];
+        return filter;
+      });
+      
+      source.connect(filters[0]);
+      for (let i = 0; i < filters.length - 1; i++) {
+        filters[i].connect(filters[i + 1]);
+      }
+      filters[filters.length - 1].connect(ctx.destination);
+      
+      equalizerRef.current = filters;
+      
+      if (wasPlayingRef.current) {
+        await audioRef.current.play();
+      }
+    } catch (e) {
+      console.error('Failed to init equalizer:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (equalizerRef.current) {
+      equalizerRef.current.forEach((filter, i) => {
+        filter.gain.value = equalizerValues[i];
+      });
+    }
+  }, [equalizerValues]);
 
   const getFocusProps = (category, index) => {
     if (!gamepadConnected || !currentUser) return {};
@@ -1113,7 +1163,7 @@ function App() {
     };
     return (
       <div className="h-screen bg-gradient-to-b from-[#1a1625] to-[#0d0d12] flex flex-col overflow-hidden">
-        <audio ref={audioRef} />
+        <audio ref={audioRef} crossOrigin="anonymous" />
         <div className="flex items-center justify-between p-4 md:p-6">
           <div className="flex items-center gap-3 text-white">
             <div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center"><Music className="w-6 h-6 text-black" /></div>
@@ -1707,6 +1757,7 @@ function App() {
     <div className="h-screen flex flex-col overflow-hidden bg-black">
       <audio 
         ref={audioRef} 
+        crossOrigin="anonymous"
         onEnded={() => {
           if (currentTrack && currentUser) {
             recordTrackDuration(currentTrack.id, currentUser.id);
@@ -2153,8 +2204,46 @@ function App() {
       </Modal>
 
       <Modal isOpen={showEqualizer} onClose={() => setShowEqualizer(false)} title={t('equalizer')}>
-        <div className="space-y-3 sm:space-y-4">
-          <div className="flex flex-wrap gap-2">{Object.entries(equalizerPresets).map(([k, p]) => <button key={k} onClick={() => applyPreset(k)} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm", equalizerPreset === k ? 'bg-brand-primary text-black' : 'bg-white/10 text-white')}>{p.name}</button>)}</div>
+        <div className="space-y-4">
+          {!audioContextRef.current && currentTrack && (
+            <button 
+              onClick={() => initEqualizer()}
+              className="w-full py-3 bg-brand-primary text-black font-semibold rounded-full mb-4"
+            >
+              Activer l'égaliseur
+            </button>
+          )}
+          {audioContextRef.current && (
+            <div className="flex flex-wrap gap-2">{Object.entries(equalizerPresets).map(([k, p]) => <button key={k} onClick={() => applyPreset(k)} className={clsx("px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm", equalizerPreset === k ? 'bg-brand-primary text-black' : 'bg-white/10 text-white')}>{p.name}</button>)}</div>
+          )}
+          
+          {audioContextRef.current && (
+          <div className="bg-[#181818] rounded-xl p-4">
+            <div className="flex justify-between gap-2 sm:gap-4">
+              {equalizerValues.map((value, i) => (
+                <div key={i} className="flex flex-col items-center flex-1">
+                  <span className="text-white text-xs font-medium mb-2">{value > 0 ? `+${value}` : value}</span>
+                  <input 
+                    type="range" 
+                    min="-12" 
+                    max="12" 
+                    step="1"
+                    value={value}
+                    onChange={(e) => {
+                      const newValues = [...equalizerValues];
+                      newValues[i] = parseInt(e.target.value);
+                      setEqualizerValues(newValues);
+                      setEqualizerPreset('custom');
+                    }}
+                    className="w-24 h-2 sm:h-3 appearance-none bg-gray-700 rounded-full cursor-pointer accent-brand-primary"
+                  />
+                  <span className="text-gray-400 text-xs mt-2">{equalizerLabels[i]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          )}
+          
           <div className="flex justify-end"><button onClick={() => setShowEqualizer(false)} className="px-5 sm:px-6 py-1.5 sm:py-2 bg-brand-primary text-black font-semibold rounded-full text-sm sm:text-base">Done</button></div>
         </div>
       </Modal>
