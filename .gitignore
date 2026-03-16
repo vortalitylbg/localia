@@ -26,6 +26,11 @@ localia-web/
 .DS_Store
 Thumbs.db
 
+# Installation scripts (keep these in git!)
+# install.sh
+# update.sh
+# uninstall.sh
+
 # Logs
 *.log
 npm-debug.log*

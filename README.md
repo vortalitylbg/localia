@@ -44,9 +44,22 @@ L'application sera disponible sur:
 - Frontend: http://localhost:5173
 - Backend: http://localhost:5000
 
-## Déploiement sur Raspberry Pi
+## Installation automatique (Linux/Raspberry Pi)
 
-### 1. Préparation du Raspberry Pi
+### Option 1: Script automatique (recommandé)
+
+```bash
+# Download le script d'installation
+curl -O https://raw.githubusercontent.com/vortalitylbg/localia/main/install.sh
+
+# Exécute le script
+chmod +x install.sh
+./install.sh
+```
+
+### Option 2: Installation manuelle
+
+Si vous préférez installer manuellement:
 
 ```bash
 # Mettre à jour le système
@@ -55,76 +68,38 @@ sudo apt update && sudo apt upgrade -y
 # Installer Node.js 18
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt install -y nodejs
-```
 
-### 2. Déployer l'application
+# Installer ffmpeg (pour les métadonnées audio)
+sudo apt install -y ffmpeg
 
-```bash
-# Cloner le projet sur le Raspberry
+# Cloner et installer
 git clone https://github.com/vortalitylbg/localia.git
 cd localia
 npm install
-
-# Construire le frontend
+cd backend && npm install && cd ..
 cd frontend && npm install && npm run build && cd ..
 
-# Configuration pour la production
-# Le backend sert les fichiers statiques en production
+# Créer le service systemd (voir section "Lancer au démarrage")
 ```
 
-### 3. Lancer au démarrage
+## Commandes utiles
 
-Créez un service systemd:
+Après l'installation automatique:
 
 ```bash
-sudo nano /etc/systemd/system/localia.service
+# Voir le status
+sudo systemctl status localia
+
+# Redémarrer l'application
+sudo systemctl restart localia
+
+# Voir les logs en temps réel
+sudo journalctl -u localia -f
 ```
-
-Contenu:
-```ini
-[Unit]
-Description=Localia Music Player
-After=network.target
-
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/localia
-ExecStart=/usr/bin/node backend/index.js
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Activez le service:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable localia
-sudo systemctl start localia
-```
-
-### 4. Accéder depuis d'autres appareils
 
 L'application est accessible via l'adresse IP du Raspberry:
 ```
-http://192.168.x.x:5000
-```
-
-## Structure du projet
-
-```
-localia/
-├── backend/           # Serveur Express
-│   ├── index.js       # Point d'entrée API
-│   ├── database.js    # Base de données SQLite
-│   └── music/         # Vos fichiers musicaux
-├── frontend/          # Application React
-│   ├── src/
-│   │   └── App.jsx   # Interface principale
-│   └── dist/          # Fichiers buildés
-├── localia-web/       # Site web de présentation
-└── package.json       # Configuration npm
+http://192.168.1.x:5000
 ```
 
 ## Ajouter de la musique
