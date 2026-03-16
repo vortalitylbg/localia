@@ -2,51 +2,69 @@
 
 set -e
 
-echo "========================================"
-echo "  Installation de Localia"
-echo "========================================"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+print_step() { echo -e "${BLUE}[1/7]${NC} $1"; }
+print_success() { echo -e "${GREEN}[OK]${NC} $1"; }
+print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 
 INSTALL_DIR="/home/pi/localia"
 SERVICE_NAME="localia"
-GIT_REPO="https://github.com/vortalitylbg/localia.git"
 
+echo "========================================"
+echo -e "${GREEN}  Installation de Localia${NC}"
+echo "========================================"
 echo ""
-echo "[1/7] Vérification des privilèges root..."
+
 if [ "$EUID" -ne 0 ]; then
-    echo "Ce script nécessite root. Utilisation de sudo..."
+    print_warning "Ce script nécessite root. Utilisation de sudo..."
     exec sudo "$0" "$@"
 fi
 
-echo "[2/7] Mise à jour du système..."
-apt update && apt upgrade -y
+print_step "Mise à jour du système..."
+apt update && apt upgrade -y > /dev/null 2>&1
+print_success "Système mis à jour"
 
-echo "[3/7] Installation de Node.js 18..."
+print_step "Installation de Node.js 18..."
 if command -v node &> /dev/null; then
-    echo "Node.js déjà installé: $(node -v)"
+    print_success "Node.js déjà installé: $(node -v)"
 else
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    apt install -y nodejs
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - > /dev/null 2>&1
+    apt install -y nodejs > /dev/null 2>&1
+    print_success "Node.js installé"
 fi
 
-echo "[4/7] Installation des dépendances système..."
-apt install -y ffmpeg
+print_step "Installation de ffmpeg..."
+if command -v ffmpeg &> /dev/null; then
+    print_success "ffmpeg déjà installé"
+else
+    apt install -y ffmpeg > /dev/null 2>&1
+    print_success "ffmpeg installé"
+fi
 
-echo "[5/7] Récupération du projet..."
+print_step "Récupération du projet..."
 if [ -d "$INSTALL_DIR" ]; then
-    echo "Le dossier existe déjà. Mise à jour..."
     cd "$INSTALL_DIR"
-    git pull
+    git pull > /dev/null 2>&1
+    print_success "Projet mis à jour"
 else
-    git clone "$GIT_REPO" "$INSTALL_DIR"
+    git clone https://github.com/vortalitylbg/localia.git "$INSTALL_DIR" > /dev/null 2>&1
     cd "$INSTALL_DIR"
+    print_success "Projet cloné"
 fi
 
-echo "[6/7] Installation des dépendances npm..."
-npm install
-cd backend && npm install && cd ..
-cd frontend && npm install && npm run build && cd ..
+print_step "Installation des dépendances..."
+npm install > /dev/null 2>&1
+cd backend && npm install > /dev/null 2>&1 && cd ..
+cd frontend && npm install > /dev/null 2>&1 && npm run build > /dev/null 2>&1 && cd ..
+print_success "Dépendances installées et frontend compilé"
 
-echo "[7/7] Configuration du service systemd..."
+print_step "Configuration du service systemd..."
 cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
 [Unit]
 Description=Localia Music Player
@@ -64,20 +82,21 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable ${SERVICE_NAME}
+systemctl daemon-reload > /dev/null 2>&1
+systemctl enable ${SERVICE_NAME} > /dev/null 2>&1
 systemctl start ${SERVICE_NAME}
+print_success "Service systemd créé et démarré"
 
+IP=$(hostname -I | awk '{print $1}')
 echo ""
 echo "========================================"
-echo "  Installation terminée!"
+echo -e "${GREEN}  Installation terminée !${NC}"
 echo "========================================"
 echo ""
-echo "L'application est accessible sur: http://$(hostname -I | awk '{print $1}'):5000"
+echo -e "L'application est accessible sur: ${GREEN}http://${IP}:5000${NC}"
 echo ""
 echo "Commandes utiles:"
-echo "  - Status: systemctl status ${SERVICE_NAME}"
-echo "  - Redémarrer: sudo systemctl restart ${SERVICE_NAME}"
-echo "  - Arrêter: sudo systemctl stop ${SERVICE_NAME}"
-echo "  - Logs: sudo journalctl -u ${SERVICE_NAME} -f"
+echo "  • Status:    sudo systemctl status ${SERVICE_NAME}"
+echo "  • Redémarrer: sudo systemctl restart ${SERVICE_NAME}"
+echo "  • Logs:     sudo journalctl -u ${SERVICE_NAME} -f"
 echo ""
