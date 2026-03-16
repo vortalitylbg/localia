@@ -26,10 +26,14 @@ localia-web/
 .DS_Store
 Thumbs.db
 
-# Installation scripts (keep these in git!)
-# install.sh
-# update.sh
-# uninstall.sh
+# Release scripts (published on GitHub releases instead)
+install-linux.sh
+update-linux.sh
+uninstall-linux.sh
+install-windows.ps1
+install-windows.bat
+install.ps1
+start.ps1
 
 # Logs
 *.log
